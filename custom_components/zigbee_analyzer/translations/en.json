@@ -1,0 +1,10 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Zigbee Analyzer",
+        "description": "Analyzes your Zigbee2MQTT network."
+      }
+    }
+  }
+}
