@@ -30,3 +30,17 @@ class AnalysisResult:
     diagnostics: list = field(default_factory=list)
 
     diagnostic_count: int = 0
+
+    mesh_score: int = 0
+
+    mesh_rating: str = ""
+
+    mesh_stars: int = 0
+
+    mesh_penalties: list[str] = field(
+        default_factory=list
+    )    
+
+    mesh_score_reasons: list[str] = field(
+        default_factory=list
+    )

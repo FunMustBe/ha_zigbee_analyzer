@@ -4,6 +4,7 @@ from .analysis_result import AnalysisResult
 from .health import HealthAnalyzer
 from .topology import TopologyAnalyzer
 from .diagnostics import DiagnosticsAnalyzer
+from .mesh_score import MeshScoreCalculator
 
 from .models import (
     ZigbeeLink,
@@ -88,7 +89,11 @@ class MeshAnalyzer:
 
         coordinator_children = (
             HealthAnalyzer.coordinator_children(network)
-        )     
+        )
+
+        mesh = MeshScoreCalculator.calculate(
+            network
+        )
            
         best_router = ""
 
@@ -121,4 +126,8 @@ class MeshAnalyzer:
             best_router_lqi=best_router_lqi,
             diagnostics=diagnostics,
             diagnostic_count=len(diagnostics),
+            mesh_score=mesh.score,
+            mesh_rating=mesh.rating,
+            mesh_stars=mesh.stars,
+            mesh_penalties=mesh.penalties,
         )

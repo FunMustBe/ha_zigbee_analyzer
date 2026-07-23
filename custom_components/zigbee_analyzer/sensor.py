@@ -68,11 +68,13 @@ SENSORS: tuple[ZigbeeAnalyzerSensorDescription, ...] = (
         name="Excellent Links",
         icon="mdi:check-circle",
     ),
+
     ZigbeeAnalyzerSensorDescription(
         key="coordinator_children",
         name="Coordinator Children",
         icon="mdi:access-point-network",
     ),
+
     ZigbeeAnalyzerSensorDescription(
     key="best_router",
     name="Best Router",
@@ -90,10 +92,29 @@ SENSORS: tuple[ZigbeeAnalyzerSensorDescription, ...] = (
         name="Best Router Average LQI",
         icon="mdi:wifi",
     ),
+
     ZigbeeAnalyzerSensorDescription(
         key="diagnostic_count",
         name="Diagnostic Count",
         icon="mdi:stethoscope",
+    ), 
+
+    ZigbeeAnalyzerSensorDescription(
+        key="mesh_score",
+        name="Mesh Score",
+        icon="mdi:star-circle",
+    ),
+
+    ZigbeeAnalyzerSensorDescription(
+        key="mesh_score",
+        name="Mesh Score",
+        icon="mdi:star-circle",
+    ),    
+
+    ZigbeeAnalyzerSensorDescription(
+        key="mesh_rating",
+        name="Mesh Rating",
+        icon="mdi:shield-check",
     ),    
 )
 

@@ -35,6 +35,10 @@ class DiagnosticsAnalyzer:
 
             target = network.get_node(link.target_ieee)
 
+            source_name = source.friendly_name if source else link.source_ieee
+
+            target_name = target.friendly_name if target else link.target_ieee
+
             diagnostics.append(
 
                 Diagnostic(
@@ -44,8 +48,8 @@ class DiagnosticsAnalyzer:
                     title="Weak Link",
 
                     description=(
-                        f"{source.friendly_name} → "
-                        f"{target.friendly_name} "
+                        f"{source_name} → "
+                        f"{target_name} "
                         f"(LQI {link.lqi})"
                     ),
 
