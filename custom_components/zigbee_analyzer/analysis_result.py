@@ -1,0 +1,32 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass(slots=True)
+class AnalysisResult:
+    device_count: int = 0
+    router_count: int = 0
+    end_device_count: int = 0
+    coordinator_count: int = 0
+
+    link_count: int = 0
+    average_lqi: int = 0
+
+    weak_links: int = 0
+    excellent_links: int = 0
+
+    router_children: dict[str, list[str]] = field(default_factory=dict)
+    router_child_count: dict[str, int] = field(default_factory=dict)
+
+    coordinator_children: int = 0
+
+    best_router: str = ""
+
+    best_router_children: int = 0
+
+    best_router_lqi: int = 0
+
+    diagnostics: list = field(default_factory=list)
+
+    diagnostic_count: int = 0

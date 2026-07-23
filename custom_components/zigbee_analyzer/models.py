@@ -26,3 +26,31 @@ class ZigbeeLink:
 class ZigbeeNetwork:
     nodes: list[ZigbeeNode] = field(default_factory=list)
     links: list[ZigbeeLink] = field(default_factory=list)
+
+    @property
+    def routers(self):
+        return [n for n in self.nodes if n.device_type == "Router"]
+
+    @property
+    def end_devices(self):
+        return [n for n in self.nodes if n.device_type == "EndDevice"]
+
+    @property
+    def coordinator(self):
+        for node in self.nodes:
+            if node.device_type == "Coordinator":
+                return node
+        return None
+
+    @property
+    def node_map(self):
+
+        return {
+            node.ieee_addr: node
+            for node in self.nodes
+        }
+
+
+    def get_node(self, ieee_addr):
+
+        return self.node_map.get(ieee_addr)
