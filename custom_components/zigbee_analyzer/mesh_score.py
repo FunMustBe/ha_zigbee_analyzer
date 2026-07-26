@@ -14,6 +14,7 @@ class MeshScoreResult:
 
 
 class MeshScoreCalculator:
+    """Calculate an overall mesh quality score."""
 
     @staticmethod
     def calculate(network: ZigbeeNetwork) -> MeshScoreResult:
@@ -33,18 +34,14 @@ class MeshScoreCalculator:
                 coordinator.ieee_addr
             )
 
-            if children > 8:
-
+            if children > 10:
                 score -= 10
-
                 penalties.append(
                     f"Coordinator hat {children} direkte Kinder."
                 )
 
-            elif children > 5:
-
+            elif children > 8:
                 score -= 5
-
                 penalties.append(
                     f"Coordinator hat {children} direkte Kinder."
                 )
@@ -60,9 +57,7 @@ class MeshScoreCalculator:
             )
 
             if children == 0:
-
-                score -= 5
-
+                score -= 3
                 penalties.append(
                     f"Router '{router.friendly_name}' hat keine Kinder."
                 )
@@ -70,16 +65,39 @@ class MeshScoreCalculator:
         #
         # Schwache Links
         #
+        # Nur Links berücksichtigen,
+        # die vermutlich echte Parent->Child Beziehungen sind.
+        #
+
+        weak_links = 0
 
         for link in network.links:
 
+            #
+            # Neighbor-Table Artefakte ignorieren
+            #
+
+            if link.lqi <= 1:
+                continue
+
+            #
+            # Sehr niedrige LQI ignorieren.
+            # Diese entstehen häufig durch unvollständige
+            # Neighbor-Informationen des Coordinators.
+            #
+
+            if link.lqi < 20:
+                continue
+
             if link.lqi < 40:
+                weak_links += 1
 
-                score -= 2
+        if weak_links:
+            score -= weak_links
 
-                penalties.append(
-                    f"Schwacher Link ({link.lqi})"
-                )
+            penalties.append(
+                f"{weak_links} schwache Links"
+            )
 
         score = max(score, 0)
 
