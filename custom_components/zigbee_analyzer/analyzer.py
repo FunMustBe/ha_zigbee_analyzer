@@ -5,6 +5,7 @@ from .health import HealthAnalyzer
 from .topology import TopologyAnalyzer
 from .diagnostics import DiagnosticsAnalyzer
 from .mesh_score import MeshScoreCalculator
+from .hotspots import HotspotAnalyzer
 
 from .models import (
     ZigbeeLink,
@@ -108,6 +109,16 @@ class MeshAnalyzer:
             best_router_children = routers[0].children
 
             best_router_lqi = routers[0].average_lqi
+
+            hotspots = HotspotAnalyzer.analyze(network)
+
+            worst_device = ""
+            worst_device_lqi = 0
+
+            if hotspots:
+
+                worst_device = hotspots[0].friendly_name
+                worst_device_lqi = hotspots[0].average_lqi            
         
         return AnalysisResult(
             device_count=len(network.nodes),
@@ -130,4 +141,7 @@ class MeshAnalyzer:
             mesh_rating=mesh.rating,
             mesh_stars=mesh.stars,
             mesh_penalties=mesh.penalties,
+            worst_device=worst_device,
+            worst_device_lqi=worst_device_lqi,
+            hotspot_count=len(hotspots),
         )

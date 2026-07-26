@@ -116,6 +116,22 @@ SENSORS: tuple[ZigbeeAnalyzerSensorDescription, ...] = (
         name="Mesh Rating",
         icon="mdi:shield-check",
     ),    
+
+    SensorEntityDescription(
+        key="worst_device",
+        name="Worst Device",
+        icon="mdi:alert-circle",
+    ),
+    SensorEntityDescription(
+        key="worst_device_lqi",
+        name="Worst Device Average LQI",
+        icon="mdi:wifi-strength-outline",
+    ),
+    SensorEntityDescription(
+        key="hotspot_count",
+        name="Hotspot Count",
+        icon="mdi:map-marker-alert",
+    ),    
 )
 
 

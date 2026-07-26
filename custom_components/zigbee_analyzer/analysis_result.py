@@ -22,25 +22,24 @@ class AnalysisResult:
     coordinator_children: int = 0
 
     best_router: str = ""
-
     best_router_children: int = 0
-
     best_router_lqi: int = 0
 
     diagnostics: list = field(default_factory=list)
-
     diagnostic_count: int = 0
 
     mesh_score: int = 0
-
     mesh_rating: str = ""
-
     mesh_stars: int = 0
 
-    mesh_penalties: list[str] = field(
-        default_factory=list
-    )    
+    mesh_penalties: list[str] = field(default_factory=list)
+    mesh_score_reasons: list[str] = field(default_factory=list)
 
-    mesh_score_reasons: list[str] = field(
-        default_factory=list
-    )
+    #
+    # Hotspots
+    #
+
+    worst_device: str = ""
+    worst_device_lqi: int = 0
+
+    hotspot_count: int = 0
