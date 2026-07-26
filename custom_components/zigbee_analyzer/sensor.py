@@ -132,6 +132,24 @@ SENSORS: tuple[ZigbeeAnalyzerSensorDescription, ...] = (
         name="Hotspot Count",
         icon="mdi:map-marker-alert",
     ),    
+
+    SensorEntityDescription(
+        key="recommendation_count",
+        name="Recommendation Count",
+        icon="mdi:lightbulb",
+    ),
+
+    SensorEntityDescription(
+        key="top_recommendation",
+        name="Top Recommendation",
+        icon="mdi:lightbulb-on",
+    ),
+
+    SensorEntityDescription(
+        key="top_recommendation_severity",
+        name="Recommendation Severity",
+        icon="mdi:alert",
+    ),    
 )
 
 

@@ -6,6 +6,7 @@ from .topology import TopologyAnalyzer
 from .diagnostics import DiagnosticsAnalyzer
 from .mesh_score import MeshScoreCalculator
 from .hotspots import HotspotAnalyzer
+from .recommendations import RecommendationAnalyzer
 
 from .models import (
     ZigbeeLink,
@@ -112,6 +113,18 @@ class MeshAnalyzer:
 
             hotspots = HotspotAnalyzer.analyze(network)
 
+            recommendations = RecommendationAnalyzer.analyze(network)
+
+            recommendation_count = len(recommendations)
+
+            top_recommendation = ""
+            top_recommendation_severity = ""
+
+            if recommendations:
+
+                top_recommendation = recommendations[0].title
+                top_recommendation_severity = recommendations[0].severity
+
             worst_device = ""
             worst_device_lqi = 0
 
@@ -144,4 +157,7 @@ class MeshAnalyzer:
             worst_device=worst_device,
             worst_device_lqi=worst_device_lqi,
             hotspot_count=len(hotspots),
+            recommendation_count=recommendation_count,
+            top_recommendation=top_recommendation,
+            top_recommendation_severity=top_recommendation_severity,
         )

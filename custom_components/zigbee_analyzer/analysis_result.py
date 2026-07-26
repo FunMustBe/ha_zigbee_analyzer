@@ -43,3 +43,9 @@ class AnalysisResult:
     worst_device_lqi: int = 0
 
     hotspot_count: int = 0
+
+    recommendation_count: int = 0
+
+    top_recommendation: str = ""
+
+    top_recommendation_severity: str = ""
