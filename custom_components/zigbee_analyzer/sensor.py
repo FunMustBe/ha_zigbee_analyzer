@@ -192,8 +192,30 @@ class ZigbeeAnalyzerSensor(
     @property
     def native_value(self):
 
+        if self.entity_description.key == "top_recommendation":
+
+            key = self.coordinator.data.top_recommendation_key
+
+            placeholders = self.coordinator.data.top_recommendation_placeholders
+
+            if key == "end_device_connected_to_coordinator":
+
+                return (
+                    f"{placeholders['device']} ist direkt mit dem "
+                    "Zigbee-Koordinator verbunden."
+                )
+
+            if key == "unused_router":
+
+                return (
+                    f"Router "
+                    f"{placeholders['router']} "
+                    "hat derzeit keine Endgeräte."
+                )
+
+            return ""
+
         return getattr(
             self.coordinator.data,
             self.entity_description.key,
-            None,
         )

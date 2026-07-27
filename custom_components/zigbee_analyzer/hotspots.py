@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .device_statistics import DeviceStatistics
 from .models import ZigbeeNetwork
 
 
 @dataclass(slots=True)
 class Hotspot:
 
-    friendly_name: str
-    average_lqi: int
-    link_count: int
+    statistics: DeviceStatistics
 
 
 class HotspotAnalyzer:
@@ -18,37 +17,61 @@ class HotspotAnalyzer:
     @staticmethod
     def analyze(network: ZigbeeNetwork) -> list[Hotspot]:
 
-        devices: dict[str, list[int]] = {}
+        stats: dict[str, DeviceStatistics] = {}
+
+        #
+        # Geräte anlegen
+        #
+
+        for node in network.nodes:
+
+            stats[node.ieee_addr] = DeviceStatistics(
+                ieee_addr=node.ieee_addr,
+                friendly_name=node.friendly_name,
+            )
+
+        #
+        # Links
+        #
 
         for link in network.links:
 
             if link.lqi <= 1:
                 continue
 
-            devices.setdefault(
-                link.source_ieee,
-                []
-            ).append(link.lqi)
+            src = stats.get(link.source_ieee)
+            dst = stats.get(link.target_ieee)
 
-        result: list[Hotspot] = []
+            if src:
 
-        for node in network.nodes:
+                src.outgoing_lqi += link.lqi
+                src.outgoing_links += 1
 
-            values = devices.get(node.ieee_addr)
+            if dst:
 
-            if not values:
-                continue
+                dst.incoming_lqi += link.lqi
+                dst.incoming_links += 1
 
-            result.append(
-                Hotspot(
-                    friendly_name=node.friendly_name,
-                    average_lqi=round(sum(values) / len(values)),
-                    link_count=len(values),
+        #
+        # Kinder
+        #
+
+        for router in network.routers:
+
+            stats[router.ieee_addr].children = len(
+                network.children_of(
+                    router.ieee_addr
                 )
             )
 
+        result = [
+            Hotspot(statistics=s)
+            for s in stats.values()
+            if s.average_lqi > 0
+        ]
+
         result.sort(
-            key=lambda x: x.average_lqi
+            key=lambda x: x.statistics.health
         )
 
         return result

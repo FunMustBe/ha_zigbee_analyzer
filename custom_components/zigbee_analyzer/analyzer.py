@@ -129,8 +129,9 @@ class MeshAnalyzer:
 
             if hotspots:
 
-                worst_device = hotspots[0].friendly_name
-                worst_device_lqi = hotspots[0].average_lqi            
+                worst = hotspots[0].statistics
+                worst_device = worst.friendly_name
+                worst_device_lqi = worst.average_lqi      
         
         return AnalysisResult(
             device_count=len(network.nodes),
@@ -159,4 +160,9 @@ class MeshAnalyzer:
             recommendation_count=recommendation_count,
             top_recommendation_key=top_recommendation_key,
             top_recommendation_placeholders=top_recommendation_placeholders,
+            top_recommendation=(
+                recommendations[0].translation_key
+                if recommendations
+                else ""
+            ),            
         )
