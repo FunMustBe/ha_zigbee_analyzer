@@ -6,5 +6,36 @@
         "description": "Analysiert dein Zigbee2MQTT Netzwerk."
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "recommendation_count": {
+        "name": "Empfehlungen"
+      },
+      "top_recommendation": {
+        "name": "Beste Empfehlung"
+      },
+      "top_recommendation_severity": {
+        "name": "Empfehlungspriorität"
+      },
+      "mesh_score": {
+        "name": "Mesh Score"
+      },
+      "mesh_rating": {
+        "name": "Mesh Bewertung"
+      },
+      "worst_device": {
+        "name": "Schlechtestes Gerät"
+      },
+      "worst_device_lqi": {
+        "name": "LQI des schlechtesten Geräts"
+      },
+      "hotspot_count": {
+        "name": "Mesh Hotspots"
+      },
+      "recommendations": {
+        "end_device_connected_to_coordinator": "Endgerät ist direkt mit dem Koordinator verbunden."
+      }      
+    }
   }
 }
