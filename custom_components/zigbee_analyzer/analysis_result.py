@@ -46,6 +46,11 @@ class AnalysisResult:
 
     recommendation_count: int = 0
 
+    top_recommendation_key: str = ""
+
+    top_recommendation_placeholders: dict[str, str] = field(default_factory=dict)
+
+# TODO Später löschen
     top_recommendation: str = ""
 
     top_recommendation_severity: str = ""

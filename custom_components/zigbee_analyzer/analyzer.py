@@ -117,13 +117,12 @@ class MeshAnalyzer:
 
             recommendation_count = len(recommendations)
 
-            top_recommendation = ""
-            top_recommendation_severity = ""
+            top_recommendation_key = ""
+            top_recommendation_placeholders = {}
 
             if recommendations:
-
-                top_recommendation = recommendations[0].title
-                top_recommendation_severity = recommendations[0].severity
+                top_recommendation_key = recommendations[0].translation_key
+                top_recommendation_placeholders = recommendations[0].placeholders
 
             worst_device = ""
             worst_device_lqi = 0
@@ -158,6 +157,6 @@ class MeshAnalyzer:
             worst_device_lqi=worst_device_lqi,
             hotspot_count=len(hotspots),
             recommendation_count=recommendation_count,
-            top_recommendation=top_recommendation,
-            top_recommendation_severity=top_recommendation_severity,
+            top_recommendation_key=top_recommendation_key,
+            top_recommendation_placeholders=top_recommendation_placeholders,
         )

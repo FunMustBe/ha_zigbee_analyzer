@@ -33,9 +33,10 @@
       "hotspot_count": {
         "name": "Mesh Hotspots"
       },
-      "recommendations": {
-        "end_device_connected_to_coordinator": "End device is directly connected to the coordinator."
-      }      
+      "recommendation": {
+        "end_device_connected_to_coordinator": "{device} is directly connected to the Zigbee coordinator. Repairing the device close to a router may improve the mesh.",
+        "unused_router": "Router {router} currently has no child devices."
+      }    
     }
   }
 }

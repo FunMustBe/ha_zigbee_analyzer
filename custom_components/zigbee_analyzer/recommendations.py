@@ -9,12 +9,9 @@ from .models import ZigbeeNetwork
 class Recommendation:
     severity: str
 
-    title: str
-    title_de: str
+    translation_key: str
 
-    description: str
-    description_de: str
-
+    placeholders: dict[str, str]
 
 class RecommendationAnalyzer:
 
@@ -42,32 +39,13 @@ class RecommendationAnalyzer:
                 continue
 
             recommendations.append(
-
                 Recommendation(
-
                     severity="warning",
-
-                    title="End device connected to coordinator",
-
-                    title_de="Endgerät direkt am Coordinator",
-
-                    description=(
-                        f"{node.friendly_name} is currently connected "
-                        f"directly to the Zigbee Coordinator. "
-                        f"If a nearby router is available, repairing "
-                        f"this device may improve the mesh quality."
-                    ),
-
-                    description_de=(
-                        f"{node.friendly_name} ist derzeit direkt mit "
-                        f"dem Zigbee-Koordinator verbunden. "
-                        f"Falls sich ein Router in der Nähe befindet, "
-                        f"kann ein erneutes Anlernen die Netzqualität "
-                        f"verbessern."
-                    )
-
+                    translation_key="end_device_connected_to_coordinator",
+                    placeholders={
+                        "device": node.friendly_name,
+                    },
                 )
-
             )
 
         #
@@ -80,31 +58,13 @@ class RecommendationAnalyzer:
                 continue
 
             recommendations.append(
-
                 Recommendation(
-
                     severity="info",
-
-                    title="Router currently has no child devices",
-
-                    title_de="Router besitzt keine Endgeräte",
-
-                    description=(
-                        f"The router '{router.friendly_name}' currently "
-                        f"has no child devices. If this router is "
-                        f"strategically placed, repairing nearby devices "
-                        f"may improve the network."
-                    ),
-
-                    description_de=(
-                        f"Der Router '{router.friendly_name}' besitzt "
-                        f"derzeit keine Endgeräte. Falls sich Geräte "
-                        f"in seiner Nähe befinden, kann ein erneutes "
-                        f"Anlernen die Last im Mesh besser verteilen."
-                    )
-
+                    translation_key="unused_router",
+                    placeholders={
+                        "router": router.friendly_name,
+                    },
                 )
-
             )
 
         return recommendations
