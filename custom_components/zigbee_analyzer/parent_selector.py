@@ -14,7 +14,6 @@ class ParentCandidate:
 
 
 class ParentSelector:
-
     @staticmethod
     def select_best_parent(
         network: ZigbeeNetwork,
@@ -24,7 +23,6 @@ class ParentSelector:
         best: ParentCandidate | None = None
 
         for router in network.routers:
-
             stats = statistics.get(router.ieee_addr)
 
             if stats is None:
@@ -41,7 +39,7 @@ class ParentSelector:
             # Router mit zu vielen Kindern leicht bestrafen
             #
 
-            score = stats.health - stats.children
+            score = stats.health
 
             candidate = ParentCandidate(
                 ieee_addr=router.ieee_addr,
