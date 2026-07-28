@@ -8,6 +8,7 @@ from .mesh_score import MeshScoreCalculator
 from .hotspots import HotspotAnalyzer
 from .recommendations import RecommendationAnalyzer
 from .root_cause import RootCauseAnalyzer
+from .parent_selector import ParentSelector
 
 from .models import (
     ZigbeeLink,
@@ -17,7 +18,6 @@ from .models import (
 
 
 class MeshAnalyzer:
-
     def __init__(self, state: State | None):
 
         self.state = state
@@ -30,7 +30,6 @@ class MeshAnalyzer:
             return network
 
         for node in self.state.attributes.get("nodes", []):
-
             network.nodes.append(
                 ZigbeeNode(
                     ieee_addr=node.get("ieeeAddr", ""),
@@ -44,7 +43,6 @@ class MeshAnalyzer:
             )
 
         for link in self.state.attributes.get("links", []):
-
             network.links.append(
                 ZigbeeLink(
                     source_ieee=link.get("sourceIeeeAddr", ""),
@@ -65,47 +63,41 @@ class MeshAnalyzer:
         routers = TopologyAnalyzer.analyze(network)
         diagnostics = DiagnosticsAnalyzer.analyze(network)
 
-        lqi_values = [
-            link.lqi
-            for link in network.links
-        ]
+        lqi_values = [link.lqi for link in network.links]
 
-        average_lqi = (
-            round(sum(lqi_values) / len(lqi_values))
-            if lqi_values else 0
-        )
+        average_lqi = round(sum(lqi_values) / len(lqi_values)) if lqi_values else 0
 
-        weak_links = len(
-            [l for l in network.links if l.lqi < 80]
-        )
+        weak_links = len([l for l in network.links if l.lqi < 80])
 
-        excellent_links = len(
-            [l for l in network.links if l.lqi >= 150]
-        )
+        excellent_links = len([l for l in network.links if l.lqi >= 150])
 
         router_children = TopologyAnalyzer.router_children(network)
 
         router_child_count = {
-            ieee: len(children)
-            for ieee, children in router_children.items()
+            ieee: len(children) for ieee, children in router_children.items()
         }
 
-        coordinator_children = (
-            HealthAnalyzer.coordinator_children(network)
-        )
+        coordinator_children = HealthAnalyzer.coordinator_children(network)
 
-        mesh = MeshScoreCalculator.calculate(
-            network
-        )
-           
+        mesh = MeshScoreCalculator.calculate(network)
+
         best_router = ""
-
         best_router_children = 0
-
         best_router_lqi = 0
 
-        if routers:
+        hotspots = []
+        recommendations = []
 
+        recommendation_count = 0
+
+        top_recommendation_key = ""
+        top_recommendation_placeholders = {}
+        top_recommendation_severity = ""
+
+        worst_device = ""
+        worst_device_lqi = 0        
+
+        if routers:
             best_router = routers[0].friendly_name
 
             best_router_children = routers[0].children
@@ -132,10 +124,9 @@ class MeshAnalyzer:
             worst_device_lqi = 0
 
             if hotspots:
-
                 worst = hotspots[0].statistics
                 worst_device = worst.friendly_name
-                worst_device_lqi = worst.average_lqi      
+                worst_device_lqi = worst.average_lqi
 
         statistics = HotspotAnalyzer.build_statistics(network)
 
@@ -144,6 +135,18 @@ class MeshAnalyzer:
             statistics,
         )
 
+        parent = ParentSelector.select_best_parent(
+            network,
+            statistics,
+        )
+
+        recommended_parent = ""
+        recommended_parent_score = 0
+
+        if parent:
+            recommended_parent = parent.friendly_name
+            recommended_parent_score = parent.score
+
         root_cause_count = len(diagnoses)
 
         top_root_cause = ""
@@ -151,13 +154,12 @@ class MeshAnalyzer:
         estimated_mesh_gain = 0
 
         if diagnoses:
-
             top_root_cause = diagnoses[0].friendly_name
 
             top_root_cause_severity = diagnoses[0].severity
 
             estimated_mesh_gain = diagnoses[0].estimated_gain
-        
+
         return AnalysisResult(
             device_count=len(network.nodes),
             router_count=len(network.routers),
@@ -186,13 +188,13 @@ class MeshAnalyzer:
             top_recommendation_key=top_recommendation_key,
             top_recommendation_placeholders=top_recommendation_placeholders,
             top_recommendation=(
-                recommendations[0].translation_key
-                if recommendations
-                else ""
+                recommendations[0].translation_key if recommendations else ""
             ),
             root_cause_count=root_cause_count,
             top_root_cause=top_root_cause,
             top_root_cause_severity=top_root_cause_severity,
-            estimated_mesh_gain=estimated_mesh_gain,    
-            top_recommendation_severity=top_recommendation_severity,        
+            estimated_mesh_gain=estimated_mesh_gain,
+            top_recommendation_severity=top_recommendation_severity,
+            recommended_parent=recommended_parent,
+            recommended_parent_score=recommended_parent_score,
         )

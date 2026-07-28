@@ -40,7 +40,13 @@
       "diagnosis": {
         "connected_to_coordinator": "Direkt mit dem Zigbee-Koordinator verbunden.",
         "repair_near_router": "Gerät in der Nähe eines Routers erneut anlernen."
-      }      
+      },
+      "recommended_parent": {
+        "name": "Empfohlener Parent"
+      },
+      "recommended_parent_score": {
+        "name": "Parent Bewertung"
+      }         
     }
   }
 }

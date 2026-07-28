@@ -5,16 +5,28 @@ from dataclasses import dataclass, field
 
 @dataclass(slots=True)
 class AnalysisResult:
+    #
+    # Network
+    #
+
     device_count: int = 0
     router_count: int = 0
     end_device_count: int = 0
     coordinator_count: int = 0
+
+    #
+    # Links
+    #
 
     link_count: int = 0
     average_lqi: int = 0
 
     weak_links: int = 0
     excellent_links: int = 0
+
+    #
+    # Router
+    #
 
     router_children: dict[str, list[str]] = field(default_factory=dict)
     router_child_count: dict[str, int] = field(default_factory=dict)
@@ -25,8 +37,16 @@ class AnalysisResult:
     best_router_children: int = 0
     best_router_lqi: int = 0
 
+    #
+    # Diagnostics
+    #
+
     diagnostics: list = field(default_factory=list)
     diagnostic_count: int = 0
+
+    #
+    # Mesh Score
+    #
 
     mesh_score: int = 0
     mesh_rating: str = ""
@@ -39,16 +59,28 @@ class AnalysisResult:
     # Hotspots
     #
 
+    hotspot_count: int = 0
+
     worst_device: str = ""
     worst_device_lqi: int = 0
 
-    hotspot_count: int = 0
+    #
+    # Recommendations
+    #
 
     recommendation_count: int = 0
+
+    top_recommendation: str = ""
 
     top_recommendation_key: str = ""
 
     top_recommendation_placeholders: dict[str, str] = field(default_factory=dict)
+
+    top_recommendation_severity: str = ""
+
+    #
+    # Root Cause
+    #
 
     root_cause_count: int = 0
 
@@ -58,7 +90,10 @@ class AnalysisResult:
 
     estimated_mesh_gain: int = 0
 
-# TODO Später löschen
-    top_recommendation: str = ""
+    #
+    # Parent Recommendation
+    #
 
-    top_recommendation_severity: str = ""
+    recommended_parent: str = ""
+
+    recommended_parent_score: int = 0

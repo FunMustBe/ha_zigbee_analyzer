@@ -40,7 +40,13 @@
       "diagnosis": {
         "connected_to_coordinator": "Connected directly to the Zigbee coordinator.",
         "repair_near_router": "Repair the device close to a nearby router."
-      }          
+      },
+      "recommended_parent": {
+        "name": "Recommended Parent"
+      },
+      "recommended_parent_score": {
+        "name": "Parent Score"
+      }              
     }
   }
 }

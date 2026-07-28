@@ -172,7 +172,18 @@ SENSORS: tuple[ZigbeeAnalyzerSensorDescription, ...] = (
         key="estimated_mesh_gain",
         name="Estimated Mesh Gain",
         icon="mdi:chart-line",
-    ),        
+    ),
+    SensorEntityDescription(
+        key="recommended_parent",
+        name="Recommended Parent",
+        icon="mdi:router-network",
+    ),
+
+    SensorEntityDescription(
+        key="recommended_parent_score",
+        name="Recommended Parent Score",
+        icon="mdi:chart-line",
+    ),    
 )
 
 
