@@ -9,6 +9,7 @@ from .hotspots import HotspotAnalyzer
 from .recommendations import RecommendationAnalyzer
 from .root_cause import RootCauseAnalyzer
 from .parent_selector import ParentSelector
+from .network_graph import NetworkGraphAnalyzer
 
 from .models import (
     ZigbeeLink,
@@ -95,7 +96,7 @@ class MeshAnalyzer:
         top_recommendation_severity = ""
 
         worst_device = ""
-        worst_device_lqi = 0        
+        worst_device_lqi = 0
 
         if routers:
             best_router = routers[0].friendly_name
@@ -129,6 +130,15 @@ class MeshAnalyzer:
                 worst_device_lqi = worst.average_lqi
 
         statistics = HotspotAnalyzer.build_statistics(network)
+
+        graph = NetworkGraphAnalyzer.analyze(network)
+
+        highest_degree_device = ""
+        highest_degree = 0
+
+        if graph:
+            highest_degree_device = graph[0].friendly_name
+            highest_degree = graph[0].degree        
 
         diagnoses = RootCauseAnalyzer.analyze(
             network,
@@ -197,4 +207,6 @@ class MeshAnalyzer:
             top_recommendation_severity=top_recommendation_severity,
             recommended_parent=recommended_parent,
             recommended_parent_score=recommended_parent_score,
+            highest_degree_device=highest_degree_device,
+            highest_degree=highest_degree,
         )

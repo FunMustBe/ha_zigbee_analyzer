@@ -97,3 +97,11 @@ class AnalysisResult:
     recommended_parent: str = ""
 
     recommended_parent_score: int = 0
+
+    #
+    # Graph
+    #
+
+    highest_degree_device: str = ""
+
+    highest_degree: int = 0    
