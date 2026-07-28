@@ -36,7 +36,11 @@
       "recommendation": {
         "end_device_connected_to_coordinator": "{device} ist direkt mit dem Zigbee-Koordinator verbunden. Ein erneutes Anlernen in der Nähe eines Routers kann die Netzqualität verbessern.",
         "unused_router": "Der Router {router} besitzt derzeit keine Endgeräte."
-      }
+      },
+      "diagnosis": {
+        "connected_to_coordinator": "Direkt mit dem Zigbee-Koordinator verbunden.",
+        "repair_near_router": "Gerät in der Nähe eines Routers erneut anlernen."
+      }      
     }
   }
 }

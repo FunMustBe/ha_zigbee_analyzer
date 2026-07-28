@@ -7,6 +7,7 @@ from .diagnostics import DiagnosticsAnalyzer
 from .mesh_score import MeshScoreCalculator
 from .hotspots import HotspotAnalyzer
 from .recommendations import RecommendationAnalyzer
+from .root_cause import RootCauseAnalyzer
 
 from .models import (
     ZigbeeLink,
@@ -123,6 +124,9 @@ class MeshAnalyzer:
             if recommendations:
                 top_recommendation_key = recommendations[0].translation_key
                 top_recommendation_placeholders = recommendations[0].placeholders
+                top_recommendation_severity = recommendations[0].severity
+            else:
+                top_recommendation_severity = ""
 
             worst_device = ""
             worst_device_lqi = 0
@@ -132,6 +136,27 @@ class MeshAnalyzer:
                 worst = hotspots[0].statistics
                 worst_device = worst.friendly_name
                 worst_device_lqi = worst.average_lqi      
+
+        statistics = HotspotAnalyzer.build_statistics(network)
+
+        diagnoses = RootCauseAnalyzer.analyze(
+            network,
+            statistics,
+        )
+
+        root_cause_count = len(diagnoses)
+
+        top_root_cause = ""
+        top_root_cause_severity = ""
+        estimated_mesh_gain = 0
+
+        if diagnoses:
+
+            top_root_cause = diagnoses[0].friendly_name
+
+            top_root_cause_severity = diagnoses[0].severity
+
+            estimated_mesh_gain = diagnoses[0].estimated_gain
         
         return AnalysisResult(
             device_count=len(network.nodes),
@@ -164,5 +189,10 @@ class MeshAnalyzer:
                 recommendations[0].translation_key
                 if recommendations
                 else ""
-            ),            
+            ),
+            root_cause_count=root_cause_count,
+            top_root_cause=top_root_cause,
+            top_root_cause_severity=top_root_cause_severity,
+            estimated_mesh_gain=estimated_mesh_gain,    
+            top_recommendation_severity=top_recommendation_severity,        
         )

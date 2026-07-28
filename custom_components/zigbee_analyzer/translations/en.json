@@ -36,7 +36,11 @@
       "recommendation": {
         "end_device_connected_to_coordinator": "{device} is directly connected to the Zigbee coordinator. Repairing the device close to a router may improve the mesh.",
         "unused_router": "Router {router} currently has no child devices."
-      }    
+      },
+      "diagnosis": {
+        "connected_to_coordinator": "Connected directly to the Zigbee coordinator.",
+        "repair_near_router": "Repair the device close to a nearby router."
+      }          
     }
   }
 }

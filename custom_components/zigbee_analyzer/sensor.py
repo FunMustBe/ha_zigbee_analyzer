@@ -149,7 +149,30 @@ SENSORS: tuple[ZigbeeAnalyzerSensorDescription, ...] = (
         key="top_recommendation_severity",
         name="Recommendation Severity",
         icon="mdi:alert",
-    ),    
+    ),
+    SensorEntityDescription(
+        key="root_cause_count",
+        name="Root Cause Count",
+        icon="mdi:stethoscope",
+    ),
+
+    SensorEntityDescription(
+        key="top_root_cause",
+        name="Top Root Cause",
+        icon="mdi:magnify",
+    ),
+
+    SensorEntityDescription(
+        key="top_root_cause_severity",
+        name="Root Cause Severity",
+        icon="mdi:alert-circle",
+    ),
+
+    SensorEntityDescription(
+        key="estimated_mesh_gain",
+        name="Estimated Mesh Gain",
+        icon="mdi:chart-line",
+    ),        
 )
 
 

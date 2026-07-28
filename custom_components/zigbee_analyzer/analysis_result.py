@@ -50,6 +50,14 @@ class AnalysisResult:
 
     top_recommendation_placeholders: dict[str, str] = field(default_factory=dict)
 
+    root_cause_count: int = 0
+
+    top_root_cause: str = ""
+
+    top_root_cause_severity: str = ""
+
+    estimated_mesh_gain: int = 0
+
 # TODO Später löschen
     top_recommendation: str = ""
 

@@ -15,7 +15,7 @@ class Hotspot:
 class HotspotAnalyzer:
 
     @staticmethod
-    def analyze(network: ZigbeeNetwork) -> list[Hotspot]:
+    def build_statistics(network: ZigbeeNetwork) -> dict[str, DeviceStatistics]:
 
         stats: dict[str, DeviceStatistics] = {}
 
@@ -63,6 +63,13 @@ class HotspotAnalyzer:
                     router.ieee_addr
                 )
             )
+
+        return stats
+
+    @staticmethod
+    def analyze(network: ZigbeeNetwork) -> list[Hotspot]:
+
+        stats = HotspotAnalyzer.build_statistics(network)
 
         result = [
             Hotspot(statistics=s)
