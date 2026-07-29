@@ -105,3 +105,7 @@ class AnalysisResult:
     highest_degree_device: str = ""
 
     highest_degree: int = 0    
+
+    cluster_count: int = 0
+
+    largest_cluster_size: int = 0    

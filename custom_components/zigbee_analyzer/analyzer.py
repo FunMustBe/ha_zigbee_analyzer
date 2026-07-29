@@ -10,6 +10,7 @@ from .recommendations import RecommendationAnalyzer
 from .root_cause import RootCauseAnalyzer
 from .parent_selector import ParentSelector
 from .network_graph import NetworkGraphAnalyzer
+from .cluster import ClusterAnalyzer
 
 from .models import (
     ZigbeeLink,
@@ -133,12 +134,21 @@ class MeshAnalyzer:
 
         graph = NetworkGraphAnalyzer.analyze(network)
 
+        clusters = ClusterAnalyzer.analyze(network)
+
+        cluster_count = len(clusters)
+
+        largest_cluster_size = 0
+
+        if clusters:
+            largest_cluster_size = len(clusters[0].nodes)
+
         highest_degree_device = ""
         highest_degree = 0
 
         if graph:
             highest_degree_device = graph[0].friendly_name
-            highest_degree = graph[0].degree        
+            highest_degree = graph[0].degree
 
         diagnoses = RootCauseAnalyzer.analyze(
             network,
@@ -209,4 +219,6 @@ class MeshAnalyzer:
             recommended_parent_score=recommended_parent_score,
             highest_degree_device=highest_degree_device,
             highest_degree=highest_degree,
+            cluster_count=cluster_count,
+            largest_cluster_size=largest_cluster_size,            
         )
