@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .network_graph import NetworkGraphAnalyzer
 from .models import ZigbeeNetwork
+from .network_graph import NetworkGraphAnalyzer
 
 
 @dataclass(slots=True)
 class Bridge:
-
     source: str
     target: str
     lqi: int
@@ -19,27 +18,47 @@ class BridgeAnalyzer:
     @staticmethod
     def analyze(network: ZigbeeNetwork) -> list[Bridge]:
 
-        graph = NetworkGraphAnalyzer.build(network)
+        #
+        # Nur Routergraph!
+        #
+
+        graph = NetworkGraphAnalyzer.build(
+            network,
+            routers_only=True,
+        )
 
         adjacency: dict[str, list[tuple[str, int]]] = {}
-
-        #
-        # Nur aktive Links
-        #
 
         for edge in graph.edges:
 
             if not edge.active:
                 continue
 
-            adjacency.setdefault(edge.source, []).append((edge.target, edge.lqi))
-            adjacency.setdefault(edge.target, []).append((edge.source, edge.lqi))
+            adjacency.setdefault(
+                edge.source,
+                [],
+            ).append(
+                (
+                    edge.target,
+                    edge.lqi,
+                )
+            )
 
-        visited: set[str] = set()
+            adjacency.setdefault(
+                edge.target,
+                [],
+            ).append(
+                (
+                    edge.source,
+                    edge.lqi,
+                )
+            )
 
-        tin: dict[str, int] = {}
+        visited = set()
 
-        low: dict[str, int] = {}
+        tin = {}
+
+        low = {}
 
         timer = 0
 
@@ -64,38 +83,43 @@ class BridgeAnalyzer:
 
                 if to in visited:
 
-                    low[v] = min(low[v], tin[to])
+                    low[v] = min(
+                        low[v],
+                        tin[to],
+                    )
 
-                else:
+                    continue
 
-                    dfs(to, v)
+                dfs(to, v)
 
-                    low[v] = min(low[v], low[to])
+                low[v] = min(
+                    low[v],
+                    low[to],
+                )
 
-                    if low[to] > tin[v]:
+                if low[to] > tin[v]:
 
-                        bridges.append(
-                            Bridge(
-                                source=v,
-                                target=to,
-                                lqi=lqi,
-                            )
+                    bridges.append(
+                        Bridge(
+                            source=v,
+                            target=to,
+                            lqi=lqi,
                         )
+                    )
 
         for node in adjacency:
 
             if node not in visited:
 
-                dfs(node, None)
+                dfs(
+                    node,
+                    None,
+                )
 
         lookup = {
-            node.ieee_addr: node.friendly_name
-            for node in network.nodes
+            n.ieee_addr: n.friendly_name
+            for n in network.nodes
         }
-
-        bridges.sort(
-            key=lambda bridge: bridge.lqi
-        )
 
         return [
             Bridge(
@@ -103,5 +127,8 @@ class BridgeAnalyzer:
                 target=lookup.get(b.target, b.target),
                 lqi=b.lqi,
             )
-            for b in bridges
+            for b in sorted(
+                bridges,
+                key=lambda x: x.lqi,
+            )
         ]

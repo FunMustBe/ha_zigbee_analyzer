@@ -8,47 +8,62 @@ from .network_edge import NetworkEdge
 
 @dataclass(slots=True)
 class GraphNode:
-
     ieee_addr: str
-
     friendly_name: str
-
+    device_type: str
     degree: int = 0
 
 
 @dataclass(slots=True)
 class NetworkGraph:
-
     nodes: list[GraphNode]
-
     edges: list[NetworkEdge]
 
 
 class NetworkGraphAnalyzer:
-
     @staticmethod
-    def build(network: ZigbeeNetwork) -> NetworkGraph:
+    def build(
+        network: ZigbeeNetwork,
+        routers_only: bool = False,
+    ) -> NetworkGraph:
 
         nodes: dict[str, GraphNode] = {}
-
-        edges: list[NetworkEdge] = []
 
         #
         # Nodes
         #
 
         for node in network.nodes:
+            #
+            # Für Graphalgorithmen interessieren
+            # ausschließlich Coordinator + Router
+            #
+
+            if routers_only:
+                if node.device_type.lower() not in (
+                    "coordinator",
+                    "router",
+                ):
+                    continue
 
             nodes[node.ieee_addr] = GraphNode(
                 ieee_addr=node.ieee_addr,
                 friendly_name=node.friendly_name,
+                device_type=node.device_type,
             )
 
         #
         # Edges
         #
 
+        edge_list: list[NetworkEdge] = []
+
         for link in network.links:
+            if link.source_ieee not in nodes:
+                continue
+
+            if link.target_ieee not in nodes:
+                continue
 
             active = link.lqi > 1
 
@@ -60,41 +75,30 @@ class NetworkGraphAnalyzer:
                 active=active,
             )
 
-            edges.append(edge)
+            edge_list.append(edge)
 
             if active:
-
-                if edge.source in nodes:
-                    nodes[edge.source].degree += 1
-
-                if edge.target in nodes:
-                    nodes[edge.target].degree += 1
+                nodes[edge.source].degree += 1
+                nodes[edge.target].degree += 1
 
         #
-        # bidirectional bestimmen
+        # Bidirectional
         #
 
-        lookup = {
-            (e.source, e.target): e
-            for e in edges
-        }
+        lookup = {(e.source, e.target): e for e in edge_list}
 
-        for edge in edges:
+        for edge in edge_list:
+            reverse = lookup.get((edge.target, edge.source))
 
-            reverse = lookup.get(
-                (edge.target, edge.source)
-            )
-
-            if reverse:
-                edge.bidirectional = True
+            edge.bidirectional = reverse is not None
 
         return NetworkGraph(
             nodes=list(nodes.values()),
-            edges=edges,
+            edges=edge_list,
         )
 
     @staticmethod
-    def analyze(network: ZigbeeNetwork) -> list[GraphNode]:
+    def analyze(network: ZigbeeNetwork):
 
         graph = NetworkGraphAnalyzer.build(network)
 
