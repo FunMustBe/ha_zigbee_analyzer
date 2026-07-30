@@ -22,20 +22,19 @@ class ClusterAnalyzer:
         # Graph erzeugen
         #
 
-        for node in network.nodes:
-            adjacency[node.ieee_addr] = set()
-
         for link in network.links:
 
             #
-            # Schlechte Links ignorieren
+            # Nur komplett ungültige Links ignorieren
             #
 
-            if link.lqi < 30:
+            if link.lqi <= 1:
                 continue
 
-            adjacency.setdefault(link.source_ieee, set()).add(link.target_ieee)
-            adjacency.setdefault(link.target_ieee, set()).add(link.source_ieee)
+            if link.lqi > 1:
+
+                adjacency.setdefault(link.source_ieee, set()).add(link.target_ieee)
+                adjacency.setdefault(link.target_ieee, set()).add(link.source_ieee)
 
         visited: set[str] = set()
 

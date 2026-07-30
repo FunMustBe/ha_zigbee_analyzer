@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .models import ZigbeeNetwork
+from .network_edge import NetworkEdge
 
 
 @dataclass(slots=True)
@@ -15,15 +16,25 @@ class GraphNode:
     degree: int = 0
 
 
+@dataclass(slots=True)
+class NetworkGraph:
+
+    nodes: list[GraphNode]
+
+    edges: list[NetworkEdge]
+
+
 class NetworkGraphAnalyzer:
 
     @staticmethod
-    def analyze(network: ZigbeeNetwork) -> list[GraphNode]:
+    def build(network: ZigbeeNetwork) -> NetworkGraph:
 
         nodes: dict[str, GraphNode] = {}
 
+        edges: list[NetworkEdge] = []
+
         #
-        # Alle Geräte anlegen
+        # Nodes
         #
 
         for node in network.nodes:
@@ -34,22 +45,61 @@ class NetworkGraphAnalyzer:
             )
 
         #
-        # Jede Verbindung erhöht den Degree
+        # Edges
         #
 
         for link in network.links:
 
-            if link.lqi <= 1:
-                continue
+            active = link.lqi > 1
 
-            if link.source_ieee in nodes:
-                nodes[link.source_ieee].degree += 1
+            edge = NetworkEdge(
+                source=link.source_ieee,
+                target=link.target_ieee,
+                lqi=link.lqi,
+                relationship=link.relationship,
+                active=active,
+            )
 
-            if link.target_ieee in nodes:
-                nodes[link.target_ieee].degree += 1
+            edges.append(edge)
+
+            if active:
+
+                if edge.source in nodes:
+                    nodes[edge.source].degree += 1
+
+                if edge.target in nodes:
+                    nodes[edge.target].degree += 1
+
+        #
+        # bidirectional bestimmen
+        #
+
+        lookup = {
+            (e.source, e.target): e
+            for e in edges
+        }
+
+        for edge in edges:
+
+            reverse = lookup.get(
+                (edge.target, edge.source)
+            )
+
+            if reverse:
+                edge.bidirectional = True
+
+        return NetworkGraph(
+            nodes=list(nodes.values()),
+            edges=edges,
+        )
+
+    @staticmethod
+    def analyze(network: ZigbeeNetwork) -> list[GraphNode]:
+
+        graph = NetworkGraphAnalyzer.build(network)
 
         return sorted(
-            nodes.values(),
+            graph.nodes,
             key=lambda n: n.degree,
             reverse=True,
         )
