@@ -11,6 +11,7 @@ from .root_cause import RootCauseAnalyzer
 from .parent_selector import ParentSelector
 from .network_graph import NetworkGraphAnalyzer
 from .cluster import ClusterAnalyzer
+from .bridge import BridgeAnalyzer
 
 from .models import (
     ZigbeeLink,
@@ -134,6 +135,37 @@ class MeshAnalyzer:
 
         graph = NetworkGraphAnalyzer.analyze(network)
 
+        bridges = BridgeAnalyzer.analyze(network)
+
+        bridge_count = len(bridges)
+
+        top_bridge = ""
+        top_bridge_lqi = 0
+
+        if bridges:
+
+            top_bridge = (
+                f"{bridges[0].source} ↔ {bridges[0].target}"
+            )
+
+            top_bridge_lqi = bridges[0].lqi
+
+        if bridges:
+
+            lookup = {
+                node.ieee_addr: node.friendly_name
+                for node in network.nodes
+            }
+
+            top = bridges[0]
+
+            source = lookup.get(top.source, top.source)
+            target = lookup.get(top.target, top.target)
+
+            top_bridge = f"{source} ↔ {target}"
+            # top_bridge_score = top.score
+            top_bridge_lqi = top.lqi        
+
         clusters = ClusterAnalyzer.analyze(network)
 
         cluster_count = len(clusters)
@@ -220,5 +252,10 @@ class MeshAnalyzer:
             highest_degree_device=highest_degree_device,
             highest_degree=highest_degree,
             cluster_count=cluster_count,
-            largest_cluster_size=largest_cluster_size,            
+            largest_cluster_size=largest_cluster_size, 
+            bridge_count=bridge_count,
+            top_bridge=top_bridge,
+            # top_bridge_score=top_bridge_score,
+            top_bridge_lqi=top_bridge_lqi,     
+                              
         )

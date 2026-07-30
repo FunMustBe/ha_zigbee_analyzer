@@ -170,6 +170,23 @@ SENSORS: tuple[ZigbeeAnalyzerSensorDescription, ...] = (
         name="Largest Cluster",
         icon="mdi:graph",
     ),
+    SensorEntityDescription(
+        key="bridge_count",
+        name="Bridge Count",
+        icon="mdi:source-branch",
+    ),
+
+    SensorEntityDescription(
+        key="top_bridge",
+        name="Critical Bridge",
+        icon="mdi:bridge",
+    ),
+
+    SensorEntityDescription(
+        key="top_bridge_lqi",
+        name="Critical Bridge LQI",
+        icon="mdi:signal",
+    ),    
 )
 
 

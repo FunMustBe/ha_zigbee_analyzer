@@ -109,3 +109,13 @@ class AnalysisResult:
     cluster_count: int = 0
 
     largest_cluster_size: int = 0    
+
+    #
+    # Bridge
+    #
+
+    bridge_count: int = 0
+
+    top_bridge: str = ""
+
+    top_bridge_lqi: int = 0    
