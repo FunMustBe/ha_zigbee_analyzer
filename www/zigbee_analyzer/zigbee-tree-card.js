@@ -1,5 +1,5 @@
 /**
- * Zigbee Tree Card (v3)
+ * Zigbee Tree Card
  * Custom Lovelace card that renders the Zigbee2MQTT network map
  * (sensor.zigbee2mqtt_network_map) with a reconstructed single-parent
  * hierarchy plus thin router<->router mesh links.
@@ -7,10 +7,27 @@
  * v2 added three switchable layouts (tree / radial / force) and
  * label-readability improvements.
  *
- * v3 adds: a force-layout bug fix (parent-child edges now render
+ * v3 added: a force-layout bug fix (parent-child edges now render
  * correctly for every device, not just routers), blue dashed styling
  * for mesh-only links, draggable nodes in all three layouts (with
  * double-click reset/unpin), and numeric LQI labels on edges.
+ *
+ * v4 redesigned the radial layout as a role-based ring (coordinator
+ * center, routers on an inner ring, end devices/orphans on an outer
+ * ring, clustered by parent router) instead of polar tree depth.
+ *
+ * v5 fixes buildTree(): a device with no valid link of its own to a
+ * parent, but which other devices reconstruct AS their parent (most
+ * commonly a router whose own uplink link is currently flagged stale/
+ * relationship 2 in the Z2M networkmap), is reachable and functioning
+ * — it is attached directly under the coordinator instead of being
+ * bucketed as an orphan. Only devices with neither a valid parent link
+ * NOR any children are true orphans. Since buildTree() is the single
+ * shared reconstruction all three layouts read from, this fix applies
+ * uniformly (it had previously only been visually masked in tree/force,
+ * which color a device by its real type regardless of which branch it
+ * hangs under, while the radial ring layout intentionally renders any
+ * orphan-bucketed device grey with no edge).
  *
  * No build step, no npm, no TypeScript. D3 v7 is loaded on demand via
  * dynamic import from a CDN.
@@ -1265,6 +1282,20 @@ function buildTree(rawNodes, rawLinks) {
     treeNodeById.set(node.ieeeAddr, makeTreeNode(node, parentLqi));
   }
 
+  // Geräte, die von KEINEM anderen Gerät als Parent referenziert werden UND
+  // selbst keinen gültigen Parent-Link haben, sind die einzigen ECHTEN
+  // Waisen. Ein Gerät ohne eigenen gültigen Uplink, das aber andere Geräte
+  // als IHREN Parent bedienen (z.B. ein Router, dessen eigener Link zum
+  // Koordinator gerade als "stale"/relationship 2 markiert ist, der aber
+  // weiterhin sichtbar Kinder hat), ist erkennbar Teil des funktionierenden
+  // Mesh — es fehlt nur die eigene Uplink-Information. Ein solches Gerät
+  // wird daher direkt an den Koordinator gehängt (LQI unbekannt -> 0),
+  // statt es fälschlich als Waise zu markieren.
+  const nodesWithChildren = new Set();
+  for (const entry of parentOf.values()) {
+    nodesWithChildren.add(entry.parentId);
+  }
+
   for (const node of rawNodes) {
     if (!node || !node.ieeeAddr) continue;
     if (node.ieeeAddr === coordinator.ieeeAddr) continue;
@@ -1272,6 +1303,8 @@ function buildTree(rawNodes, rawLinks) {
     const entry = parentOf.get(node.ieeeAddr);
     if (entry && treeNodeById.has(entry.parentId)) {
       treeNodeById.get(entry.parentId).children.push(treeNode);
+    } else if (nodesWithChildren.has(node.ieeeAddr)) {
+      rootTreeNode.children.push(treeNode);
     } else {
       orphanRoot.children.push(treeNode);
     }

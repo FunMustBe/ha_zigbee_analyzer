@@ -86,10 +86,21 @@ Mess-Artefakte). Die Karte rekonstruiert daraus **genau einen** Parent pro Gerä
    gewählt.
 4. Entsteht durch diese Auswahl ein Zyklus in der Parent-Kette, wird der schwächste
    Link im Zyklus entfernt, damit `d3.hierarchy` nicht crasht.
-5. Geräte ohne gültigen Parent-Link gelten als **verwaist**. Im Baum- und
-   Force-Layout hängen sie sichtbar an einem eigenen "Orphans"-Zweig; im
-   Radial-Layout gibt es diesen Sammelknoten nicht — Waisen (und alles, was an
-   einem verwaisten Gerät hängt) werden dort einzeln, grau, ohne Kante dargestellt.
+5. Ein Gerät ohne eigenen gültigen Parent-Link, das aber von einem ANDEREN Gerät
+   als dessen Parent referenziert wird (z.B. ein Router, dessen eigener Uplink
+   gerade als `relationship: 2`/stale markiert ist, der aber weiterhin sichtbar
+   Kinder bedient), gilt als erreichbar und wird direkt an den Koordinator gehängt
+   (LQI unbekannt → 0) statt fälschlich als Waise zu gelten.
+6. Nur Geräte, die WEDER einen eigenen gültigen Parent-Link NOCH irgendwelche
+   Kinder haben, gelten als **echte Waise**. Im Baum- und Force-Layout hängen sie
+   sichtbar an einem eigenen "Orphans"-Zweig (der die reale Gerätefarbe behält); im
+   Radial-Layout gibt es diesen Sammelknoten nicht — echte Waisen werden dort
+   einzeln, grau, ohne Kante in einem gemeinsamen Sektor dargestellt.
+
+Diese Rekonstruktion (`buildTree()`) ist die EINE gemeinsame Datenquelle für alle
+drei Layouts — Baum und Force lesen sie über `d3.hierarchy()` bzw. eine flache
+Kantenliste, Radial über einen eigenen Rollen-Walk, aber alle drei sehen exakt
+dieselbe Parent-/Waisen-Zuordnung.
 
 ### LQI-Farbskala
 
