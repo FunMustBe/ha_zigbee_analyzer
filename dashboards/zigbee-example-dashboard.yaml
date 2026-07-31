@@ -1,0 +1,116 @@
+# Beispiel-Dashboard für die zigbee-tree-card.
+#
+# VORAUSSETZUNG (sonst bleibt Ansicht 1 leer / zeigt Fehler):
+#   Einstellungen -> Dashboards -> Ressourcen (Menü oben rechts) -> Ressource hinzufügen
+#     URL:  /local/zigbee_analyzer/zigbee-tree-card.js
+#     Typ:  JavaScript-Modul
+#
+# EINFÜGEN: Neues Dashboard anlegen (oder bestehendes bearbeiten) ->
+#   Drei-Punkte-Menü -> "Rohkonfiguration bearbeiten" -> kompletten Inhalt
+#   dieser Datei einfügen -> Speichern.
+#
+# Live per MCP verifiziert (Stand: 2026-07-31):
+#   - sensor.zigbee2mqtt_network_map liefert nodes/links wie erwartet.
+#   - Batterie-Sensoren unten sind ECHTE, existierende Entity-IDs aus
+#     diesem HA (Zigbee2MQTT-Geräte). Ersetze/ergänze sie nach Bedarf.
+
+title: Zigbee
+views:
+  # --- Ansicht 1: Graph in voller Breite -----------------------------------
+  - title: Zigbee Netzwerk
+    path: zigbee-netzwerk
+    type: panel # volle Bildschirmbreite für die Graph-Card
+    icon: mdi:lan # Alternative: mdi:z-wave
+    cards:
+      - type: custom:zigbee-tree-card
+        # ANPASSEN: entity, falls dein network_map-Sensor anders heißt.
+        entity: sensor.zigbee2mqtt_network_map
+        height: 800
+        show_mesh_links: true
+        layout: radial # tree | radial | force
+
+  # --- Ansicht 2: Ergänzende Standard-Karten (kein Custom-Card-Risiko) -----
+  - title: Zigbee Details
+    path: zigbee-details
+    type: sections
+    icon: mdi:information-outline
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Legende
+            heading_style: title
+            icon: mdi:palette
+
+          - type: markdown
+            content: >
+              **Knotenfarben (Typ):**
+
+              🟡 Coordinator &nbsp;&nbsp; 🔵 Router &nbsp;&nbsp;
+              🟢 EndDevice &nbsp;&nbsp; ⚪ Orphan (kein gültiger Parent
+              gefunden)
+
+
+              **Kantenfarbe/-dicke:** spiegelt die Link-Qualität (LQI)
+              zum Parent wider — rot (schwach) → gelb → grün (stark),
+              dünn → dick.
+
+
+              **Graue, dünne Linien:** zusätzliche Router-zu-Router-
+              Mesh-Verbindungen (kein Baum-Pfad).
+
+
+              **Bedienung:** Klick/Hover auf einen Knoten zeigt Details
+              (IEEE-Adresse, Modell, LQI, zuletzt gesehen). Ziehen zum
+              Verschieben (Pan), Scrollen zum Zoomen. Über die Buttons
+              oben rechts in der Graph-Card zwischen Baum/Radial/Force
+              umschalten.
+            grid_options:
+              columns: full
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Netzwerk-Sensor & Bridge
+            heading_style: title
+            icon: mdi:router-network
+
+          - type: entities
+            title: Zigbee2MQTT Status
+            entities:
+              # Liefert die Rohdaten (nodes/links) für die Graph-Card.
+              - entity: sensor.zigbee2mqtt_network_map
+                name: Network Map (Rohdaten)
+              - entity: binary_sensor.zigbee2mqtt_bridge_connection_state_2
+                name: Bridge Verbindung
+              - entity: sensor.zigbee2mqtt_bridge_version_2
+                name: Bridge Version
+            grid_options:
+              columns: full
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Batteriestatus (Auswahl)
+            heading_style: subtitle
+            icon: mdi:battery
+
+          # ANPASSEN: hier eigene Sensoren eintragen — dies ist nur eine
+          # Auswahl der per MCP gefundenen Batterie-Sensoren. Vollständige
+          # Liste über: Einstellungen -> Geräte & Dienste -> Entitäten,
+          # Filter nach "battery".
+          - type: glance
+            title: Batterie ausgewählter Geräte
+            entities:
+              - entity: sensor.0xa4c138121976eddc_battery
+                name: Max Fenster rechts
+              - entity: sensor.0xa4c13871f41501b2_battery
+                name: Daniel Fenster
+              - entity: sensor.0xa4c138aecdbf9ddc_battery
+                name: Schalter (TS0043)
+              - entity: sensor.0x0ceff6fffecee0ec_battery
+                name: Moes Szenenschalter Bad
+              # hier eigene Sensoren eintragen
+            grid_options:
+              columns: full
