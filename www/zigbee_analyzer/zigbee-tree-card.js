@@ -38,6 +38,15 @@
  * the rest via forceManyBody/forceCenter without being pulled anywhere
  * specific; radial is unchanged (it already sourced orphans this way).
  *
+ * v7 adds a second button group (LQI display mode: weak / all / none)
+ * controlling WHEN the numeric LQI label on an edge is shown, independent
+ * of layout. Toggling it never re-runs a layout — it only flips label
+ * `display` styles on the already-rendered edge groups, so node
+ * positions, zoom/pan and any dragged positions are untouched. "all"
+ * always shows every number regardless of zoom level (no new zoom-gated
+ * special case, unlike node labels which do hide at low zoom to reduce
+ * clutter) — edge labels were never zoom-gated before this change either.
+ *
  * No build step, no npm, no TypeScript. D3 v7 is loaded on demand via
  * dynamic import from a CDN.
  */
@@ -56,6 +65,9 @@ const WEAK_LQI_THRESHOLD = 40;
 
 const LAYOUTS = ['tree', 'radial', 'force'];
 const LAYOUT_LABELS = { tree: 'Baum', radial: 'Radial', force: 'Force' };
+
+const LQI_MODES = ['weak', 'all', 'none'];
+const LQI_MODE_LABELS = { weak: 'Schwache', all: 'Alle', none: 'Keine' };
 
 // --- Shared datum accessors -------------------------------------------
 // Work uniformly for d3.hierarchy nodes (datum.data holds our plain node
@@ -137,6 +149,14 @@ class ZigbeeTreeCard extends HTMLElement {
     this._labelSelection = null;
     this._currentZoomScale = 1;
     this._currentZoomTransform = null;
+
+    // LQI-Anzeigemodus für die Kanten-Zahlen: nicht über YAML konfigurierbar,
+    // startet immer bei "weak" (aktuelles Verhalten). Bleibt über
+    // Layout-Wechsel/Re-Renders hinweg erhalten (Instanz-Zustand, kein
+    // Config-Feld), setzt sich nur zurück, wenn die Karte neu erzeugt wird.
+    this._lqiMode = 'weak';
+    this._lqiApplyFns = [];
+    this._lqiButtonsEl = null;
 
     this.attachShadow({ mode: 'open' });
     this.shadowRoot.innerHTML = `
@@ -256,12 +276,34 @@ class ZigbeeTreeCard extends HTMLElement {
           border-top: 2px dashed ${MESH_LINK_COLOR};
           display: inline-block;
         }
-        .layout-switch {
+        .switch-group {
           position: absolute;
           top: 8px;
           right: 8px;
           z-index: 6;
           display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 6px;
+          max-width: calc(100% - 16px);
+        }
+        .switch-row {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 2px;
+        }
+        .switch-label {
+          font-size: 9px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          color: var(--secondary-text-color, #888);
+          padding-right: 2px;
+        }
+        .button-row {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-end;
           gap: 4px;
         }
         .layout-btn {
@@ -433,6 +475,24 @@ class ZigbeeTreeCard extends HTMLElement {
     this._draw();
   }
 
+  /**
+   * Setzt den LQI-Anzeigemodus (weak/all/none). Löst bewusst KEIN Redraw
+   * aus: nur die Button-Hervorhebung und die Sichtbarkeit der bereits
+   * gerenderten Kanten-Zahlen (via applyMode(), siehe _renderEdgeGroup)
+   * werden aktualisiert — Knotenpositionen, Zoom/Pan-Transform und
+   * gedraggte Positionen bleiben unangetastet.
+   */
+  _setLqiMode(mode) {
+    if (!LQI_MODES.includes(mode) || mode === this._lqiMode) return;
+    this._lqiMode = mode;
+    if (this._lqiButtonsEl) {
+      Array.from(this._lqiButtonsEl.children).forEach((btn, i) => {
+        btn.classList.toggle('active', LQI_MODES[i] === mode);
+      });
+    }
+    this._lqiApplyFns.forEach((applyMode) => applyMode());
+  }
+
   _applyLabelVisibility(scale) {
     this._currentZoomScale = scale;
     if (!this._labelSelection) return;
@@ -442,11 +502,18 @@ class ZigbeeTreeCard extends HTMLElement {
   /**
    * Zeichnet eine Kantengruppe: sichtbare Linie/Kurve (LQI-Farbe/Dicke),
    * eine unsichtbare breite Hit-Area (für leichtes Hovern dünner Linien)
-   * und eine LQI-Zahl an der Linienmitte (immer sichtbar bei LQI < 40,
-   * sonst nur bei Hover). Liefert refresh(), um Positionen nach
-   * Drag/Zoom/Simulations-Tick neu zu berechnen — alle Positions-Getter
-   * werden bei jedem Aufruf neu ausgewertet, damit bewegte Knoten die
-   * Kante (inkl. Zahl) live mitziehen.
+   * und eine LQI-Zahl an der Linienmitte. OB die Zahl sichtbar ist, richtet
+   * sich nach dem aktuellen LQI-Anzeigemodus (this._lqiMode, umschaltbar
+   * über die zweite Button-Gruppe, siehe _setLqiMode):
+   *   - "weak": wie bisher — LQI < 40 immer sichtbar, sonst nur bei Hover.
+   *   - "all":  immer sichtbar, auch bei Mesh-Linien.
+   *   - "none": nie sichtbar, auch nicht bei Hover (Kantenfarbe bleibt).
+   * Liefert refresh(), um Positionen nach Drag/Zoom/Simulations-Tick neu
+   * zu berechnen, und applyMode(), um nur die Zahlen-Sichtbarkeit nach
+   * einem Moduswechsel zu aktualisieren — OHNE Positionen anzufassen.
+   * applyMode() wird automatisch in this._lqiApplyFns registriert, damit
+   * _setLqiMode() alle Kantengruppen aller Layouts auf einen Schlag
+   * aktualisieren kann, ohne dass jeder Layout-Renderer das selbst tun muss.
    */
   _renderEdgeGroup(layer, edges, opts) {
     const { shape, sourcePos, targetPos, stroke, width, dash, opacity, lqi, className } = opts;
@@ -492,22 +559,32 @@ class ZigbeeTreeCard extends HTMLElement {
       .join('text')
       .attr('class', `edge-lqi-label ${className}-lqi`)
       .attr('dy', '0.32em')
-      .text((d) => Math.round(lqi(d) || 0))
-      .style('display', (d) => (lqi(d) < WEAK_LQI_THRESHOLD ? null : 'none'));
+      .text((d) => Math.round(lqi(d) || 0));
+
+    const computeDisplay = (d) => {
+      if (this._lqiMode === 'none') return 'none';
+      if (this._lqiMode === 'all') return null;
+      return lqi(d) < WEAK_LQI_THRESHOLD ? null : 'none'; // 'weak' (Default)
+    };
+    const applyMode = () => label.style('display', computeDisplay);
+    applyMode();
+    this._lqiApplyFns.push(applyMode);
 
     const positionLabels = () => {
       label.attr('x', (d) => (sourcePos(d).x + targetPos(d).x) / 2).attr('y', (d) => (sourcePos(d).y + targetPos(d).y) / 2);
     };
     positionLabels();
 
+    // Hover schaltet Zahlen nur im Modus "weak" für Links >= 40 LQI um; in
+    // "all" sind sie schon dauerhaft sichtbar, in "none" bewusst nie.
     hit
       .on('mouseenter', (event, d) => {
-        if (lqi(d) >= WEAK_LQI_THRESHOLD) {
+        if (this._lqiMode === 'weak' && lqi(d) >= WEAK_LQI_THRESHOLD) {
           label.filter((dd) => dd === d).style('display', null);
         }
       })
       .on('mouseleave', (event, d) => {
-        if (lqi(d) >= WEAK_LQI_THRESHOLD) {
+        if (this._lqiMode === 'weak' && lqi(d) >= WEAK_LQI_THRESHOLD) {
           label.filter((dd) => dd === d).style('display', 'none');
         }
       });
@@ -518,10 +595,10 @@ class ZigbeeTreeCard extends HTMLElement {
       positionLabels();
     };
 
-    return { visible, hit, label, refresh };
+    return { visible, hit, label, refresh, applyMode };
   }
 
-  /** Baut Card-Chrome (SVG, Zoom, Tooltip, Legende, Layout-Switcher) neu auf und delegiert an das aktive Layout. */
+  /** Baut Card-Chrome (SVG, Zoom, Tooltip, Legende, Layout-/LQI-Switcher) neu auf und delegiert an das aktive Layout. */
   _draw() {
     const d3 = this._d3;
     const built = this._lastBuilt;
@@ -532,6 +609,8 @@ class ZigbeeTreeCard extends HTMLElement {
       this._simulation = null;
     }
     this._labelSelection = null;
+    this._lqiApplyFns = [];
+    this._lqiButtonsEl = null;
 
     const width = this._contentEl.clientWidth || this.clientWidth || 600;
     const height = this._config.height || 600;
@@ -544,18 +623,52 @@ class ZigbeeTreeCard extends HTMLElement {
     container.style.height = `${height}px`;
     this._contentEl.appendChild(container);
 
-    // Layout-Umschalter
-    const switcher = document.createElement('div');
-    switcher.className = 'layout-switch';
+    // Zwei getrennte Umschalter-Gruppen (Layout oben, LQI-Anzeige darunter),
+    // gleicher Button-Stil, aber eigene Beschriftung, damit klar ist, dass
+    // es zwei unabhängige Schalter sind.
+    const switchGroup = document.createElement('div');
+    switchGroup.className = 'switch-group';
+
+    const layoutRow = document.createElement('div');
+    layoutRow.className = 'switch-row';
+    const layoutLabel = document.createElement('div');
+    layoutLabel.className = 'switch-label';
+    layoutLabel.textContent = 'Layout';
+    const layoutButtons = document.createElement('div');
+    layoutButtons.className = 'button-row';
     LAYOUTS.forEach((mode) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = LAYOUT_LABELS[mode];
       btn.className = `layout-btn${this._currentLayout === mode ? ' active' : ''}`;
       btn.addEventListener('click', () => this._setLayout(mode));
-      switcher.appendChild(btn);
+      layoutButtons.appendChild(btn);
     });
-    container.appendChild(switcher);
+    layoutRow.appendChild(layoutLabel);
+    layoutRow.appendChild(layoutButtons);
+
+    const lqiRow = document.createElement('div');
+    lqiRow.className = 'switch-row';
+    const lqiLabel = document.createElement('div');
+    lqiLabel.className = 'switch-label';
+    lqiLabel.textContent = 'LQI';
+    const lqiButtons = document.createElement('div');
+    lqiButtons.className = 'button-row';
+    LQI_MODES.forEach((mode) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = LQI_MODE_LABELS[mode];
+      btn.className = `layout-btn${this._lqiMode === mode ? ' active' : ''}`;
+      btn.addEventListener('click', () => this._setLqiMode(mode));
+      lqiButtons.appendChild(btn);
+    });
+    lqiRow.appendChild(lqiLabel);
+    lqiRow.appendChild(lqiButtons);
+    this._lqiButtonsEl = lqiButtons;
+
+    switchGroup.appendChild(layoutRow);
+    switchGroup.appendChild(lqiRow);
+    container.appendChild(switchGroup);
 
     const svg = d3
       .select(container)

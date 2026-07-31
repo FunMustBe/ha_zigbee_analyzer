@@ -74,6 +74,10 @@ Doppelklick hebt die Fixierung auf), Pan/Zoom funktioniert per Ziehen/Scrollen a
 freier Fläche, und Hover/Klick auf einen Knoten zeigt ein Tooltip mit friendlyName,
 Typ, IEEE-Adresse, Modell, Hersteller, LQI zum Parent und "zuletzt gesehen".
 
+Oben rechts in der Karte gibt es zwei getrennt beschriftete Button-Gruppen:
+**Layout** (Baum/Radial/Force, siehe oben) und darunter **LQI** (siehe
+"LQI-Zahlen-Anzeigemodus" unten) — unabhängige Schalter, gleicher Button-Stil.
+
 ## Designentscheidungen
 
 ### Parent-Rekonstruktion
@@ -124,13 +128,32 @@ rot → orange → gelb → grün an den Stützstellen `0, 80, 150, 255`, und mi
 Strichbreite von 1–4px linear zur LQI. Mesh-Zusatzlinien folgen dieser Skala nicht,
 sondern sind einheitlich blau (siehe unten).
 
-### LQI-Zahlen-Regel
+### LQI-Zahlen-Anzeigemodus
 
-Auf jeder Kante kann der LQI-Wert numerisch angezeigt werden: bei **LQI < 40
-dauerhaft sichtbar** (schwache Verbindungen sollen sofort auffallen), bei LQI ≥ 40
-nur beim Hovern über die Kante. Dafür liegt unter jeder sichtbaren Linie eine
-unsichtbare, ca. 10px breite Hit-Area, damit auch dünne Kanten leicht zu treffen
-sind. Die Zahl folgt der Kantenmitte live mit, wenn ein Knoten verschoben wird.
+Auf jeder Kante kann der LQI-Wert numerisch angezeigt werden. Ein zweiter
+Button-Schalter (oben rechts, unter dem Layout-Schalter, gleicher Stil, eigene
+"LQI"-Beschriftung) steuert dafür einen von drei Modi, gilt gleichermaßen für
+alle drei Layouts und wirkt sofort, ohne das Layout neu zu berechnen (nur die
+Sichtbarkeit der bereits gerenderten Zahlen wird umgeschaltet — Knotenpositionen,
+Zoom/Pan und gedraggte Positionen bleiben unangetastet):
+
+- **Schwache** (Default beim Laden der Karte): LQI < 40 dauerhaft sichtbar
+  (schwache Verbindungen sollen sofort auffallen), alle anderen nur beim Hovern
+  über die Kante.
+- **Alle**: jede LQI-Zahl dauerhaft sichtbar, inklusive der blauen
+  Mesh-Zusatzlinien — unabhängig vom Zoom-Level. (Bewusst keine
+  zoom-abhängige Sonderregel wie bei den Knoten-Labels: Kanten-Zahlen waren
+  schon vorher nicht an den Zoom-Maßstab gekoppelt, das hätte einen neuen
+  Sonderfall statt einen bestehenden erweitert.)
+- **Keine**: keine LQI-Zahl, auch nicht bei Hover. Die Kantenfarbe/-dicke nach
+  LQI bleibt davon unberührt.
+
+Der Modus ist reiner Karten-Zustand (kein YAML-Konfigurationsschlüssel) und
+startet bei jedem Neuaufbau der Karte wieder bei "Schwache".
+
+Unabhängig vom Modus liegt unter jeder sichtbaren Linie eine unsichtbare, ca.
+10px breite Hit-Area, damit auch dünne Kanten leicht zu treffen sind. Die Zahl
+folgt der Kantenmitte live mit, wenn ein Knoten verschoben wird.
 
 ### Blaue Mesh-Linien
 
