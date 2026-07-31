@@ -48,20 +48,25 @@ layout: radial   # tree | radial | force
 ## Die drei Layouts
 
 **Baum** — statischer Top-down-Baum (`d3.tree()`), Koordinator oben, Ebenen darunter,
-Kanten als sanfte Bezier-Kurven.
+Kanten als sanfte Bezier-Kurven. `d3.hierarchy`/`d3.tree` brauchen einen
+zusammenhängenden Baum, daher besteht dieser nur aus Koordinator + verbundenen
+Geräten; verwaiste Geräte hängen als eigene Reihe unterhalb des Baums (siehe
+"Einheitliches Waisen-Handling" unten).
 
 **Radial** — Rollen-basiertes Ring-Layout: der Radius codiert die Geräterolle, nicht
 die Baumtiefe. Koordinator im Zentrum, alle Router auf einem inneren Ring,
-EndDevices und verwaiste Geräte auf einem äußeren Ring. Jedes EndDevice sitzt im
-Winkel-Sektor seines Parent-Routers (Sektorbreite proportional zur Anzahl seiner
-Kinder), sodass Router-Cluster entstehen statt Linien kreuz und quer durch die
-Mitte. Verwaiste Geräte haben hier keinen eigenen Sammelknoten mehr — sie werden
-einzeln, grau, ohne Kante in einem gemeinsamen Sektor platziert.
+EndDevices auf einem äußeren Ring. Jedes EndDevice sitzt im Winkel-Sektor seines
+Parent-Routers (Sektorbreite proportional zur Anzahl seiner Kinder), sodass
+Router-Cluster entstehen statt Linien kreuz und quer durch die Mitte. Verwaiste
+Geräte landen einzeln in einem gemeinsamen Sektor auf dem äußeren Ring.
 
 **Force** — kräftebasierte Simulation (`d3.forceSimulation`): Kantendistanz ist
 invers zur LQI (starke Links kurz, schwache lang), Knoten stoßen sich ab
 (`forceManyBody`) und werden zur Mitte gezogen (`forceCenter`). Gezogene Knoten
 bleiben nach dem Loslassen fixiert; ein Doppelklick löst die Fixierung wieder.
+Verwaiste Geräte fließen als normale Simulationsknoten ohne Kante ein — sie
+pendeln sich durch `forceManyBody`/`forceCenter` frei im Raum ein, statt zu
+driften oder zu einem Parent gezogen zu werden.
 
 In allen drei Layouts sind Knoten per Maus verschiebbar (Baum/Radial: nur visuell,
 Doppelklick setzt auf die berechnete Position zurück; Force: physikalisch fixiert,
@@ -92,15 +97,25 @@ Mess-Artefakte). Die Karte rekonstruiert daraus **genau einen** Parent pro Gerä
    Kinder bedient), gilt als erreichbar und wird direkt an den Koordinator gehängt
    (LQI unbekannt → 0) statt fälschlich als Waise zu gelten.
 6. Nur Geräte, die WEDER einen eigenen gültigen Parent-Link NOCH irgendwelche
-   Kinder haben, gelten als **echte Waise**. Im Baum- und Force-Layout hängen sie
-   sichtbar an einem eigenen "Orphans"-Zweig (der die reale Gerätefarbe behält); im
-   Radial-Layout gibt es diesen Sammelknoten nicht — echte Waisen werden dort
-   einzeln, grau, ohne Kante in einem gemeinsamen Sektor dargestellt.
+   Kinder haben, gelten als **echte Waise**.
 
 Diese Rekonstruktion (`buildTree()`) ist die EINE gemeinsame Datenquelle für alle
-drei Layouts — Baum und Force lesen sie über `d3.hierarchy()` bzw. eine flache
-Kantenliste, Radial über einen eigenen Rollen-Walk, aber alle drei sehen exakt
-dieselbe Parent-/Waisen-Zuordnung.
+drei Layouts — Baum und Force lesen den verbundenen Teil über `d3.hierarchy()`
+bzw. eine flache Kantenliste, Radial über einen eigenen Rollen-Walk, aber alle
+drei sehen exakt dieselbe Parent-/Waisen-Zuordnung.
+
+#### Einheitliches Waisen-Handling
+
+Es gibt **keinen synthetischen "Orphans"-Sammelknoten** — in keinem Layout.
+`buildTree()` liefert echte Waisen als eigene flache Liste (`orphans`), getrennt
+vom Baum selbst. Jedes Layout stellt sie identisch dar: grau (`#95a5a6`,
+unabhängig vom echten Gerätetyp — Grau ist ein Status, kein Typ), ohne
+Verbindungskante, aber mit normalem Label, Tooltip (zeigt weiterhin den echten
+Typ) und Drag wie jeder andere Knoten. Nur die Positionierung unterscheidet sich
+pro Layout, weil keine Kante die Waise an eine feste Stelle bindet: Baum setzt sie
+in eine eigene Reihe unterhalb des restlichen Baums, Radial in einen gemeinsamen
+Winkel-Sektor auf dem äußeren Ring, Force lässt sie als kantenlose
+Simulationsknoten frei im Raum treiben.
 
 ### LQI-Farbskala
 

@@ -22,12 +22,21 @@
  * relationship 2 in the Z2M networkmap), is reachable and functioning
  * — it is attached directly under the coordinator instead of being
  * bucketed as an orphan. Only devices with neither a valid parent link
- * NOR any children are true orphans. Since buildTree() is the single
- * shared reconstruction all three layouts read from, this fix applies
- * uniformly (it had previously only been visually masked in tree/force,
- * which color a device by its real type regardless of which branch it
- * hangs under, while the radial ring layout intentionally renders any
- * orphan-bucketed device grey with no edge).
+ * NOR any children are true orphans.
+ *
+ * v6 removes the synthetic "Orphans" container node entirely.
+ * buildTree() now returns true orphans as a flat `orphans` array
+ * alongside `root`, instead of nesting them under a fake tree node.
+ * Every layout renders orphans identically: grey (regardless of their
+ * real device type), no connecting edge, normal label/tooltip/drag —
+ * the radial layout already worked this way; tree and force previously
+ * still showed a grey container node with its (real-colored) children
+ * hanging off it, which was an inconsistent leftover from before the
+ * shared reconstruction existed. Tree positions orphans in their own
+ * row below the connected part of the tree; force feeds them into the
+ * simulation as ordinary nodes with no forceLink, so they settle near
+ * the rest via forceManyBody/forceCenter without being pulled anywhere
+ * specific; radial is unchanged (it already sourced orphans this way).
  *
  * No build step, no npm, no TypeScript. D3 v7 is loaded on demand via
  * dynamic import from a CDN.
@@ -44,8 +53,6 @@ const NODE_COLORS = {
 
 const MESH_LINK_COLOR = '#3498db';
 const WEAK_LQI_THRESHOLD = 40;
-
-const ORPHAN_ROOT_ID = '__orphans__';
 
 const LAYOUTS = ['tree', 'radial', 'force'];
 const LAYOUT_LABELS = { tree: 'Baum', radial: 'Radial', force: 'Force' };
@@ -70,6 +77,15 @@ function nodeFill(d) {
 }
 function nodeRadius(d) {
   return nodeType(d) === 'Coordinator' ? 12 : 8;
+}
+// Waisen werden IMMER grau gezeichnet, unabhängig von ihrem echten
+// Gerätetyp (Router/EndDevice) — Grau ist ein Status, kein Typ. Der
+// Tooltip zeigt weiterhin den echten Typ (siehe showTooltip), nur die
+// Füllfarbe wird hier überschrieben. Von allen drei Layouts gemeinsam
+// genutzt, damit die Waisen-Darstellung garantiert einheitlich bleibt.
+function resolveNodeFill(d, orphanIds) {
+  const id = (d.data || d).id;
+  return orphanIds && orphanIds.has(id) ? NODE_COLORS.Orphan : nodeFill(d);
 }
 
 function truncateLabel(name, maxLen = 18) {
@@ -600,7 +616,12 @@ class ZigbeeTreeCard extends HTMLElement {
       .clamp(true);
     const lqiWidth = d3.scaleLinear().domain([0, 255]).range([1, 4]).clamp(true);
 
-    const ctx = { d3, meshLayer, treeLayer, width, height, built, showTooltip, hideTooltip, lqiColor, lqiWidth };
+    // Einmal zentral berechnet, von allen drei Layouts identisch genutzt
+    // (siehe resolveNodeFill), damit die Waisen-Darstellung garantiert
+    // überall gleich ist.
+    const orphanIds = new Set((built.orphans || []).map((o) => o.id));
+
+    const ctx = { d3, meshLayer, treeLayer, width, height, built, showTooltip, hideTooltip, lqiColor, lqiWidth, orphanIds };
 
     if (this._currentLayout === 'radial') {
       this._renderRadialLayout(ctx);
@@ -626,9 +647,17 @@ class ZigbeeTreeCard extends HTMLElement {
     container.appendChild(legend);
   }
 
-  /** Statischer Top-down-Baum (Standard-Layout). */
+  /**
+   * Statischer Top-down-Baum (Standard-Layout). d3.hierarchy/d3.tree
+   * brauchen einen zusammenhängenden Baum, daher besteht dieser NUR aus
+   * Koordinator + verbundenen Geräten. Echte Waisen (built.orphans) sind
+   * kein Teil der Hierarchie — sie werden separat als eigene Reihe
+   * unterhalb des Baums platziert (eigene y-Ebene, gleichmäßig über die
+   * x-Breite verteilt), grau, ohne Kante, aber sonst wie jeder normale
+   * Knoten (Label, Tooltip, Drag).
+   */
   _renderTreeLayout(ctx) {
-    const { d3, treeLayer, meshLayer, width, lqiColor, lqiWidth, built, showTooltip, hideTooltip } = ctx;
+    const { d3, treeLayer, meshLayer, width, lqiColor, lqiWidth, built, showTooltip, hideTooltip, orphanIds } = ctx;
 
     const root = d3.hierarchy(built.root);
     const treeLayout = d3.tree().nodeSize([70, 110]);
@@ -636,20 +665,42 @@ class ZigbeeTreeCard extends HTMLElement {
 
     let minX = Infinity;
     let maxX = -Infinity;
+    let maxY = -Infinity;
     root.each((d) => {
       if (d.x < minX) minX = d.x;
       if (d.x > maxX) maxX = d.x;
+      if (d.y > maxY) maxY = d.y;
     });
     const treeWidth = maxX - minX || 1;
     const xOffset = width / 2 - (minX + treeWidth / 2);
     const yOffset = 50;
     const basePos = (d) => ({ x: d.x + xOffset, y: d.y + yOffset });
     // Gedraggte Knoten behalten ihre frei gezogene Position (_dragX/_dragY),
-    // bis ein Doppelklick sie auf die berechnete Basis zurücksetzt.
-    const getPos = (d) => (d._dragX !== undefined ? { x: d._dragX, y: d._dragY } : basePos(d));
+    // bis ein Doppelklick sie auf die berechnete Basis (Baum-Position oder
+    // Waisen-Reihe) zurücksetzt.
+    const getPos = (d) => {
+      if (d._dragX !== undefined) return { x: d._dragX, y: d._dragY };
+      if (d._orphanX !== undefined) return { x: d._orphanX, y: d._orphanY };
+      return basePos(d);
+    };
+
+    // Waisen als eigene Reihe unterhalb des restlichen Baums: genug
+    // vertikaler Abstand zur letzten Baum-Ebene reicht als dezente
+    // Trennung, kein Sammelknoten nötig.
+    const orphans = built.orphans || [];
+    const orphanRowY = maxY + yOffset + 90;
+    const orphanSpacing = 90;
+    const orphanStartX = width / 2 - ((orphans.length - 1) * orphanSpacing) / 2;
+    const orphanWrappers = orphans.map((node, i) => ({
+      data: node,
+      id: node.id,
+      _orphanX: orphanStartX + i * orphanSpacing,
+      _orphanY: orphanRowY,
+    }));
 
     const nodeById = new Map();
     root.each((d) => nodeById.set(d.data.id, d));
+    for (const w of orphanWrappers) nodeById.set(w.id, w);
 
     const treeEdges = this._renderEdgeGroup(treeLayer, root.links(), {
       shape: 'curve',
@@ -677,9 +728,11 @@ class ZigbeeTreeCard extends HTMLElement {
       });
     }
 
+    const allNodeData = root.descendants().concat(orphanWrappers);
+
     const nodeG = treeLayer
       .selectAll('g.node')
-      .data(root.descendants())
+      .data(allNodeData, (d) => (d.data || d).id)
       .join('g')
       .attr('class', 'node')
       .attr('transform', (d) => {
@@ -691,7 +744,7 @@ class ZigbeeTreeCard extends HTMLElement {
     nodeG
       .append('circle')
       .attr('r', (d) => nodeRadius(d))
-      .attr('fill', (d) => nodeFill(d))
+      .attr('fill', (d) => resolveNodeFill(d, orphanIds))
       .attr('stroke', 'var(--card-background-color, #fff)')
       .attr('stroke-width', 1.5);
 
@@ -751,44 +804,28 @@ class ZigbeeTreeCard extends HTMLElement {
    * (Sektorbreite proportional zur Kinderzahl, damit sich Cluster nicht
    * überlappen) statt zufällig über den ganzen Kreis verteilt zu sein.
    *
-   * Es gibt HIER keinen "Orphans"-Sammelknoten mehr: verwaiste Geräte
-   * (und alles, was an einem verwaisten Gerät hängt) landen einzeln, grau,
-   * ohne Kante, in einem eigenen Sektor auf Ring 2. Baum/Force behalten
-   * ihren Orphans-Zweig unverändert (siehe _renderTreeLayout/_renderForceLayout).
+   * Waisen (built.orphans, von buildTree() bereits als flache Liste ohne
+   * Sammelknoten geliefert) landen einzeln, grau, ohne Kante, in einem
+   * eigenen Sektor auf Ring 2 — identisch zur Waisen-Darstellung in
+   * Baum/Force (siehe _renderTreeLayout/_renderForceLayout).
    */
   _renderRadialLayout(ctx) {
-    const { d3, treeLayer, meshLayer, width, height, lqiColor, lqiWidth, built, showTooltip, hideTooltip } = ctx;
+    const { d3, treeLayer, meshLayer, width, height, lqiColor, lqiWidth, built, showTooltip, hideTooltip, orphanIds } = ctx;
 
     const coordinatorNode = built.root;
+    const orphans = built.orphans || [];
 
     // --- Rollen-Klassifikation --------------------------------------------
     // routers: alle Router, unabhängig von Baumtiefe/Router-Ketten.
     // routerChildren: Map<routerId, Kindgeräte[]> — direkte Kinder je Router.
     // directCoordChildren: Geräte, deren rekonstruierter Parent direkt der
     // Koordinator ist (kein Router dazwischen).
-    // orphans: alles aus dem (hier aufgelösten) Orphans-Zweig, inkl. eines
-    // eventuellen eigenen Teilbaums darunter (niemand geht verloren).
     const routers = [];
     const routerChildren = new Map();
     const directCoordChildren = [];
-    const orphans = [];
-
-    const collectSubtree = (node) => {
-      const out = [node];
-      for (const child of node.children || []) {
-        out.push(...collectSubtree(child));
-      }
-      return out;
-    };
 
     const classify = (node) => {
       for (const child of node.children || []) {
-        if (child.id === ORPHAN_ROOT_ID) {
-          for (const orphanChild of child.children || []) {
-            orphans.push(...collectSubtree(orphanChild));
-          }
-          continue;
-        }
         if (child.type === 'Router') {
           routers.push(child);
           routerChildren.set(child.id, []);
@@ -850,7 +887,6 @@ class ZigbeeTreeCard extends HTMLElement {
     // tut), damit Drag-Zustand (_dragX/_dragY) NIE auf den gecachten, mit
     // anderen Layouts geteilten Baumknoten (built.root) landet.
     const wrapperById = new Map();
-    const orphanIds = new Set(orphans.map((o) => o.id));
 
     const addNode = (node, angle, baseRadius) => {
       const norm = normalizeAngle(angle);
@@ -963,9 +999,7 @@ class ZigbeeTreeCard extends HTMLElement {
     nodeG
       .append('circle')
       .attr('r', (w) => nodeRadius(w))
-      // Waisen immer grau, unabhängig von ihrem ursprünglichen Gerätetyp —
-      // ihr Tooltip zeigt weiterhin den echten Typ (siehe showTooltip).
-      .attr('fill', (w) => (orphanIds.has(w.data.id) ? NODE_COLORS.Orphan : nodeFill(w)))
+      .attr('fill', (w) => resolveNodeFill(w, orphanIds))
       .attr('stroke', 'var(--card-background-color, #fff)')
       .attr('stroke-width', 1.5);
 
@@ -1025,11 +1059,20 @@ class ZigbeeTreeCard extends HTMLElement {
       });
   }
 
-  /** Force-directed Layout mit draggbaren Knoten; Mesh-Links als schwache Zusatzkräfte. */
+  /**
+   * Force-directed Layout mit draggbaren Knoten; Mesh-Links als schwache
+   * Zusatzkräfte. Waisen (built.orphans) fließen als ganz normale
+   * Simulationsknoten ein, bekommen aber KEINEN forceLink — sie werden
+   * also nie zu einem Parent gezogen. forceManyBody + forceCenter wirken
+   * trotzdem weiterhin auf sie, sodass sie sich locker im freien Raum
+   * einpendeln statt ins Unendliche zu driften.
+   */
   _renderForceLayout(ctx) {
-    const { d3, treeLayer, meshLayer, width, height, lqiColor, lqiWidth, built, showTooltip, hideTooltip } = ctx;
+    const { d3, treeLayer, meshLayer, width, height, lqiColor, lqiWidth, built, showTooltip, hideTooltip, orphanIds } = ctx;
 
     const { nodes: flatNodes, edges: treeEdgesData } = flattenTree(built.root);
+    const orphanNodes = (built.orphans || []).map((n) => ({ ...n }));
+    const allFlatNodes = flatNodes.concat(orphanNodes);
     const meshEdgesData = (this._config.show_mesh_links ? built.meshLinks : []).map((l) => ({
       source: l.source,
       target: l.target,
@@ -1043,7 +1086,8 @@ class ZigbeeTreeCard extends HTMLElement {
     // die zum Rendern der Kanten verwendet werden — sonst bleiben die
     // gerenderten Kanten bei String-IDs stehen und kollabieren auf (0,0).
     // treeEdgesData/meshEdgesData werden hier direkt (ohne Kopie) sowohl
-    // für die Simulation als auch fürs Rendering benutzt.
+    // für die Simulation als auch fürs Rendering benutzt. orphanNodes
+    // tauchen bewusst in KEINEM Link auf.
     treeEdgesData.forEach((e) => {
       e.mesh = false;
     });
@@ -1053,7 +1097,7 @@ class ZigbeeTreeCard extends HTMLElement {
     const distanceScale = d3.scaleLinear().domain([0, 255]).range([170, 45]).clamp(true);
 
     const simulation = d3
-      .forceSimulation(flatNodes)
+      .forceSimulation(allFlatNodes)
       .force(
         'link',
         d3
@@ -1100,7 +1144,7 @@ class ZigbeeTreeCard extends HTMLElement {
 
     const nodeG = treeLayer
       .selectAll('g.node')
-      .data(flatNodes, (d) => d.id)
+      .data(allFlatNodes, (d) => d.id)
       .join('g')
       .attr('class', 'node')
       .style('cursor', 'grab');
@@ -1108,7 +1152,7 @@ class ZigbeeTreeCard extends HTMLElement {
     nodeG
       .append('circle')
       .attr('r', (d) => nodeRadius(d))
-      .attr('fill', (d) => nodeFill(d))
+      .attr('fill', (d) => resolveNodeFill(d, orphanIds))
       .attr('stroke', 'var(--card-background-color, #fff)')
       .attr('stroke-width', 1.5);
 
@@ -1165,8 +1209,11 @@ class ZigbeeTreeCard extends HTMLElement {
 
 /**
  * Baut aus den rohen Z2M-Netzwerkdaten eine d3.hierarchy-kompatible
- * Baumstruktur mit genau einem Parent pro Gerät plus Orphan-Zweig,
- * sowie die Liste zusätzlicher Router<->Router Mesh-Links.
+ * Baumstruktur mit genau einem Parent pro Gerät (root = Koordinator),
+ * eine separate flache Liste echter Waisen (Geräte ohne gültigen
+ * Parent-Link UND ohne eigene Kinder — kein Sammelknoten mehr, siehe
+ * `orphans` im Rückgabewert), sowie die Liste zusätzlicher
+ * Router<->Router Mesh-Links.
  */
 function buildTree(rawNodes, rawLinks) {
   const nodeMap = new Map();
@@ -1265,15 +1312,6 @@ function buildTree(rawNodes, rawLinks) {
   const rootTreeNode = makeTreeNode(coordinator, null);
   treeNodeById.set(coordinator.ieeeAddr, rootTreeNode);
 
-  const orphanRoot = {
-    id: ORPHAN_ROOT_ID,
-    ieeeAddr: ORPHAN_ROOT_ID,
-    friendlyName: 'Orphans',
-    type: 'Orphan',
-    parentLqi: 0,
-    children: [],
-  };
-
   for (const node of rawNodes) {
     if (!node || !node.ieeeAddr) continue;
     if (node.ieeeAddr === coordinator.ieeeAddr) continue;
@@ -1296,6 +1334,12 @@ function buildTree(rawNodes, rawLinks) {
     nodesWithChildren.add(entry.parentId);
   }
 
+  // Es gibt KEINEN synthetischen "Orphans"-Sammelknoten mehr: echte Waisen
+  // werden als flache Liste separat von der Baumstruktur zurückgegeben.
+  // Jedes Layout positioniert sie selbst passend (Ring-Sektor, eigene
+  // Zeile unterhalb des Baums, freie Simulationsknoten ohne Kante), statt
+  // sie künstlich in die Hierarchie einzuhängen.
+  const orphans = [];
   for (const node of rawNodes) {
     if (!node || !node.ieeeAddr) continue;
     if (node.ieeeAddr === coordinator.ieeeAddr) continue;
@@ -1306,12 +1350,8 @@ function buildTree(rawNodes, rawLinks) {
     } else if (nodesWithChildren.has(node.ieeeAddr)) {
       rootTreeNode.children.push(treeNode);
     } else {
-      orphanRoot.children.push(treeNode);
+      orphans.push(treeNode);
     }
-  }
-
-  if (orphanRoot.children.length > 0) {
-    rootTreeNode.children.push(orphanRoot);
   }
 
   // Mesh-Links: Router<->Router (inkl. Coordinator), nicht bereits Baumkante, lqi > 1.
@@ -1341,7 +1381,7 @@ function buildTree(rawNodes, rawLinks) {
     meshLinks.push({ source: l.sourceIeeeAddr, target: l.targetIeeeAddr, lqi: l.lqi });
   }
 
-  return { root: rootTreeNode, meshLinks, nodeById: treeNodeById };
+  return { root: rootTreeNode, orphans, meshLinks, nodeById: treeNodeById };
 }
 
 function formatLastSeen(lastSeenMs) {
