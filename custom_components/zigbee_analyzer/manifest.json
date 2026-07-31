@@ -1,7 +1,7 @@
 {
   "domain": "zigbee_analyzer",
   "name": "Zigbee Analyzer",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "config_flow": true,
   "documentation": "https://github.com/FunMustBe/ha_zigbee_analyzer",
   "issue_tracker": "https://github.com/FunMustBe/ha_zigbee_analyzer/issues",
