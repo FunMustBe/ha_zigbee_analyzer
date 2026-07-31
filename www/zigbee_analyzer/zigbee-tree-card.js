@@ -1,12 +1,16 @@
 /**
- * Zigbee Tree Card (v2)
+ * Zigbee Tree Card (v3)
  * Custom Lovelace card that renders the Zigbee2MQTT network map
  * (sensor.zigbee2mqtt_network_map) with a reconstructed single-parent
  * hierarchy plus thin router<->router mesh links.
  *
- * v2 adds three switchable layouts (tree / radial / force) and
- * label-readability improvements (middle-ellipsis truncation, halo,
- * zoom-dependent visibility, radial label orientation, force collision).
+ * v2 added three switchable layouts (tree / radial / force) and
+ * label-readability improvements.
+ *
+ * v3 adds: a force-layout bug fix (parent-child edges now render
+ * correctly for every device, not just routers), blue dashed styling
+ * for mesh-only links, draggable nodes in all three layouts (with
+ * double-click reset/unpin), and numeric LQI labels on edges.
  *
  * No build step, no npm, no TypeScript. D3 v7 is loaded on demand via
  * dynamic import from a CDN.
@@ -20,6 +24,9 @@ const NODE_COLORS = {
   EndDevice: '#2ecc71',
   Orphan: '#95a5a6',
 };
+
+const MESH_LINK_COLOR = '#3498db';
+const WEAK_LQI_THRESHOLD = 40;
 
 const ORPHAN_ROOT_ID = '__orphans__';
 
@@ -62,7 +69,9 @@ function truncateLabel(name, maxLen = 18) {
  * parent-child edges, for use with d3.forceSimulation. Returns copies of
  * the node objects so the force simulation (which mutates x/y/vx/vy/fx/fy
  * directly on the datum) never touches the cached hierarchy data reused
- * by the tree/radial layouts.
+ * by the tree/radial layouts. The edge objects are likewise fresh per
+ * call so d3.forceLink can safely mutate their source/target in place
+ * (see _renderForceLayout for why that mutation matters).
  */
 function flattenTree(rootData) {
   const nodes = [];
@@ -145,6 +154,17 @@ class ZigbeeTreeCard extends HTMLElement {
           stroke-width: 3px;
           stroke-linejoin: round;
         }
+        .edge-lqi-label {
+          font-size: 9px;
+          fill: var(--primary-text-color, #000);
+          text-anchor: middle;
+          pointer-events: none;
+          user-select: none;
+          paint-order: stroke;
+          stroke: var(--card-background-color, #111);
+          stroke-width: 3px;
+          stroke-linejoin: round;
+        }
         .tooltip {
           position: absolute;
           pointer-events: none;
@@ -195,6 +215,12 @@ class ZigbeeTreeCard extends HTMLElement {
           height: 8px;
           border-radius: 4px;
           background: linear-gradient(to right, #e74c3c, #e67e22, #f1c40f, #2ecc71);
+          display: inline-block;
+        }
+        .legend-mesh-swatch {
+          width: 20px;
+          height: 0;
+          border-top: 2px dashed ${MESH_LINK_COLOR};
           display: inline-block;
         }
         .layout-switch {
@@ -380,6 +406,88 @@ class ZigbeeTreeCard extends HTMLElement {
     this._labelSelection.style('display', (d) => (scale < 0.6 && nodeType(d) === 'EndDevice' ? 'none' : null));
   }
 
+  /**
+   * Zeichnet eine Kantengruppe: sichtbare Linie/Kurve (LQI-Farbe/Dicke),
+   * eine unsichtbare breite Hit-Area (für leichtes Hovern dünner Linien)
+   * und eine LQI-Zahl an der Linienmitte (immer sichtbar bei LQI < 40,
+   * sonst nur bei Hover). Liefert refresh(), um Positionen nach
+   * Drag/Zoom/Simulations-Tick neu zu berechnen — alle Positions-Getter
+   * werden bei jedem Aufruf neu ausgewertet, damit bewegte Knoten die
+   * Kante (inkl. Zahl) live mitziehen.
+   */
+  _renderEdgeGroup(layer, edges, opts) {
+    const { shape, sourcePos, targetPos, stroke, width, dash, opacity, lqi, className } = opts;
+
+    const group = layer.append('g').attr('class', `edge-group edge-group-${className}`);
+
+    const pathFn = (d) => {
+      const s = sourcePos(d);
+      const t = targetPos(d);
+      if (shape === 'curve') {
+        const my = (s.y + t.y) / 2;
+        return `M${s.x},${s.y} C${s.x},${my} ${t.x},${my} ${t.x},${t.y}`;
+      }
+      return `M${s.x},${s.y} L${t.x},${t.y}`;
+    };
+
+    const visible = group
+      .selectAll(`path.${className}`)
+      .data(edges)
+      .join('path')
+      .attr('class', className)
+      .attr('fill', 'none')
+      .attr('stroke', stroke)
+      .attr('stroke-width', width)
+      .attr('stroke-opacity', opacity !== undefined ? opacity : 1)
+      .attr('stroke-dasharray', dash || null)
+      .attr('d', pathFn);
+
+    const hit = group
+      .selectAll(`path.${className}-hit`)
+      .data(edges)
+      .join('path')
+      .attr('class', `${className}-hit`)
+      .attr('fill', 'none')
+      .attr('stroke', 'transparent')
+      .attr('stroke-width', 10)
+      .style('pointer-events', 'stroke')
+      .attr('d', pathFn);
+
+    const label = group
+      .selectAll(`text.${className}-lqi`)
+      .data(edges)
+      .join('text')
+      .attr('class', `edge-lqi-label ${className}-lqi`)
+      .attr('dy', '0.32em')
+      .text((d) => Math.round(lqi(d) || 0))
+      .style('display', (d) => (lqi(d) < WEAK_LQI_THRESHOLD ? null : 'none'));
+
+    const positionLabels = () => {
+      label.attr('x', (d) => (sourcePos(d).x + targetPos(d).x) / 2).attr('y', (d) => (sourcePos(d).y + targetPos(d).y) / 2);
+    };
+    positionLabels();
+
+    hit
+      .on('mouseenter', (event, d) => {
+        if (lqi(d) >= WEAK_LQI_THRESHOLD) {
+          label.filter((dd) => dd === d).style('display', null);
+        }
+      })
+      .on('mouseleave', (event, d) => {
+        if (lqi(d) >= WEAK_LQI_THRESHOLD) {
+          label.filter((dd) => dd === d).style('display', 'none');
+        }
+      });
+
+    const refresh = () => {
+      visible.attr('d', pathFn);
+      hit.attr('d', pathFn);
+      positionLabels();
+    };
+
+    return { visible, hit, label, refresh };
+  }
+
   /** Baut Card-Chrome (SVG, Zoom, Tooltip, Legende, Layout-Switcher) neu auf und delegiert an das aktive Layout. */
   _draw() {
     const d3 = this._d3;
@@ -496,6 +604,7 @@ class ZigbeeTreeCard extends HTMLElement {
       <div class="legend-row"><span class="legend-swatch" style="background:${NODE_COLORS.EndDevice}"></span>EndDevice</div>
       <div class="legend-row"><span class="legend-swatch" style="background:${NODE_COLORS.Orphan}"></span>Orphan</div>
       <div class="legend-row"><span class="legend-lqi-gradient"></span>&nbsp;LQI: schwach&nbsp;→&nbsp;stark</div>
+      <div class="legend-row"><span class="legend-mesh-swatch"></span>&nbsp;Mesh-Zusatzlink</div>
     `;
     container.appendChild(legend);
   }
@@ -517,37 +626,38 @@ class ZigbeeTreeCard extends HTMLElement {
     const treeWidth = maxX - minX || 1;
     const xOffset = width / 2 - (minX + treeWidth / 2);
     const yOffset = 50;
-    const posOf = (d) => ({ x: d.x + xOffset, y: d.y + yOffset });
+    const basePos = (d) => ({ x: d.x + xOffset, y: d.y + yOffset });
+    // Gedraggte Knoten behalten ihre frei gezogene Position (_dragX/_dragY),
+    // bis ein Doppelklick sie auf die berechnete Basis zurücksetzt.
+    const getPos = (d) => (d._dragX !== undefined ? { x: d._dragX, y: d._dragY } : basePos(d));
 
-    treeLayer
-      .selectAll('path.tree-link')
-      .data(root.links())
-      .join('path')
-      .attr('class', 'tree-link')
-      .attr('fill', 'none')
-      .attr('stroke', (d) => lqiColor(nodeParentLqi(d.target) || 0))
-      .attr('stroke-width', (d) => lqiWidth(nodeParentLqi(d.target) || 0))
-      .attr('d', (d) => {
-        const s = posOf(d.source);
-        const t = posOf(d.target);
-        return `M${s.x},${s.y} C${s.x},${(s.y + t.y) / 2} ${t.x},${(s.y + t.y) / 2} ${t.x},${t.y}`;
-      });
+    const nodeById = new Map();
+    root.each((d) => nodeById.set(d.data.id, d));
 
+    const treeEdges = this._renderEdgeGroup(treeLayer, root.links(), {
+      shape: 'curve',
+      sourcePos: (d) => getPos(d.source),
+      targetPos: (d) => getPos(d.target),
+      stroke: (d) => lqiColor(nodeParentLqi(d.target) || 0),
+      width: (d) => lqiWidth(nodeParentLqi(d.target) || 0),
+      lqi: (d) => nodeParentLqi(d.target) || 0,
+      className: 'tree-link',
+    });
+
+    let meshEdges = null;
     if (this._config.show_mesh_links && built.meshLinks.length) {
-      const posById = new Map();
-      root.each((d) => posById.set(d.data.id, posOf(d)));
-      meshLayer
-        .selectAll('line.mesh-link')
-        .data(built.meshLinks.filter((l) => posById.has(l.source) && posById.has(l.target)))
-        .join('line')
-        .attr('class', 'mesh-link')
-        .attr('stroke', '#888')
-        .attr('stroke-width', 0.5)
-        .attr('stroke-opacity', 0.25)
-        .attr('x1', (d) => posById.get(d.source).x)
-        .attr('y1', (d) => posById.get(d.source).y)
-        .attr('x2', (d) => posById.get(d.target).x)
-        .attr('y2', (d) => posById.get(d.target).y);
+      const validMesh = built.meshLinks.filter((l) => nodeById.has(l.source) && nodeById.has(l.target));
+      meshEdges = this._renderEdgeGroup(meshLayer, validMesh, {
+        shape: 'line',
+        sourcePos: (d) => getPos(nodeById.get(d.source)),
+        targetPos: (d) => getPos(nodeById.get(d.target)),
+        stroke: () => MESH_LINK_COLOR,
+        width: () => 1.5,
+        dash: '4 3',
+        opacity: 0.5,
+        lqi: (d) => d.lqi || 0,
+        className: 'mesh-link',
+      });
     }
 
     const nodeG = treeLayer
@@ -556,10 +666,10 @@ class ZigbeeTreeCard extends HTMLElement {
       .join('g')
       .attr('class', 'node')
       .attr('transform', (d) => {
-        const p = posOf(d);
+        const p = getPos(d);
         return `translate(${p.x},${p.y})`;
       })
-      .style('cursor', 'pointer');
+      .style('cursor', 'grab');
 
     nodeG
       .append('circle')
@@ -575,13 +685,44 @@ class ZigbeeTreeCard extends HTMLElement {
       .attr('y', (d) => (nodeType(d) === 'Coordinator' ? 26 : 22))
       .text((d) => truncateLabel(nodeFriendlyName(d)));
 
+    const refreshPositions = () => {
+      nodeG.attr('transform', (d) => {
+        const p = getPos(d);
+        return `translate(${p.x},${p.y})`;
+      });
+      treeEdges.refresh();
+      if (meshEdges) meshEdges.refresh();
+    };
+
+    const drag = d3
+      .drag()
+      .on('start', (event) => {
+        // Verhindert, dass ein Knoten-Drag gleichzeitig das Pan/Zoom der
+        // Ansicht auslöst (Pointerdown würde sonst bis zur svg bubbeln).
+        event.sourceEvent.stopPropagation();
+      })
+      .on('drag', (event, d) => {
+        const base = getPos(d);
+        const k = (this._currentZoomTransform && this._currentZoomTransform.k) || 1;
+        d._dragX = base.x + event.dx / k;
+        d._dragY = base.y + event.dy / k;
+        refreshPositions();
+      });
+
     nodeG
+      .call(drag)
       .on('mouseenter', showTooltip)
       .on('mousemove', showTooltip)
       .on('mouseleave', hideTooltip)
       .on('click', (event, d) => {
         event.stopPropagation();
         showTooltip(event, d);
+      })
+      .on('dblclick', (event, d) => {
+        event.stopPropagation();
+        d._dragX = undefined;
+        d._dragY = undefined;
+        refreshPositions();
       });
   }
 
@@ -599,40 +740,44 @@ class ZigbeeTreeCard extends HTMLElement {
     const radialTree = treeLayer.append('g').attr('class', 'radial-root').attr('transform', `translate(${centerX},${centerY})`);
     const radialMesh = meshLayer.append('g').attr('class', 'radial-mesh').attr('transform', `translate(${centerX},${centerY})`);
 
-    // Kartesische Projektion (nur für die Mesh-Linien-Endpunkte benötigt;
-    // Knoten selbst werden per rotate()+translate() positioniert).
-    const posOf = (d) => ({
+    // Kartesische Basis-Projektion (Zentrum-relativ). Gedraggte Knoten
+    // überschreiben diese Position, bis ein Doppelklick zurücksetzt.
+    const basePos = (d) => ({
       x: d.y * Math.cos(d.x - Math.PI / 2),
       y: d.y * Math.sin(d.x - Math.PI / 2),
     });
+    const getPos = (d) => (d._dragX !== undefined ? { x: d._dragX, y: d._dragY } : basePos(d));
 
-    const linkRadial = d3.linkRadial().angle((d) => d.x).radius((d) => d.y);
+    const nodeById = new Map();
+    root.each((d) => nodeById.set(d.data.id, d));
 
-    radialTree
-      .selectAll('path.tree-link')
-      .data(root.links())
-      .join('path')
-      .attr('class', 'tree-link')
-      .attr('fill', 'none')
-      .attr('stroke', (d) => lqiColor(nodeParentLqi(d.target) || 0))
-      .attr('stroke-width', (d) => lqiWidth(nodeParentLqi(d.target) || 0))
-      .attr('d', linkRadial);
+    // Kanten als einfache Linien zwischen den (ggf. gedraggten) Positionen
+    // statt d3.linkRadial(), damit sie live mit frei gezogenen Knoten
+    // mitgehen (linkRadial setzt ein festes Polarkoordinatensystem voraus).
+    const treeEdges = this._renderEdgeGroup(radialTree, root.links(), {
+      shape: 'line',
+      sourcePos: (d) => getPos(d.source),
+      targetPos: (d) => getPos(d.target),
+      stroke: (d) => lqiColor(nodeParentLqi(d.target) || 0),
+      width: (d) => lqiWidth(nodeParentLqi(d.target) || 0),
+      lqi: (d) => nodeParentLqi(d.target) || 0,
+      className: 'tree-link',
+    });
 
+    let meshEdges = null;
     if (this._config.show_mesh_links && built.meshLinks.length) {
-      const posById = new Map();
-      root.each((d) => posById.set(d.data.id, posOf(d)));
-      radialMesh
-        .selectAll('line.mesh-link')
-        .data(built.meshLinks.filter((l) => posById.has(l.source) && posById.has(l.target)))
-        .join('line')
-        .attr('class', 'mesh-link')
-        .attr('stroke', '#888')
-        .attr('stroke-width', 0.5)
-        .attr('stroke-opacity', 0.25)
-        .attr('x1', (d) => posById.get(d.source).x)
-        .attr('y1', (d) => posById.get(d.source).y)
-        .attr('x2', (d) => posById.get(d.target).x)
-        .attr('y2', (d) => posById.get(d.target).y);
+      const validMesh = built.meshLinks.filter((l) => nodeById.has(l.source) && nodeById.has(l.target));
+      meshEdges = this._renderEdgeGroup(radialMesh, validMesh, {
+        shape: 'line',
+        sourcePos: (d) => getPos(nodeById.get(d.source)),
+        targetPos: (d) => getPos(nodeById.get(d.target)),
+        stroke: () => MESH_LINK_COLOR,
+        width: () => 1.5,
+        dash: '4 3',
+        opacity: 0.5,
+        lqi: (d) => d.lqi || 0,
+        className: 'mesh-link',
+      });
     }
 
     const nodeG = radialTree
@@ -640,8 +785,11 @@ class ZigbeeTreeCard extends HTMLElement {
       .data(root.descendants())
       .join('g')
       .attr('class', 'node')
-      .attr('transform', (d) => `rotate(${(d.x * 180) / Math.PI - 90}) translate(${d.y},0)`)
-      .style('cursor', 'pointer');
+      .attr('transform', (d) => {
+        const p = getPos(d);
+        return `translate(${p.x},${p.y})`;
+      })
+      .style('cursor', 'grab');
 
     nodeG
       .append('circle')
@@ -651,24 +799,58 @@ class ZigbeeTreeCard extends HTMLElement {
       .attr('stroke-width', 1.5);
 
     // Label entlang des Radius ausgerichtet: rechte Hälfte startet nach
-    // außen, linke Hälfte wird um 180° gedreht (+ text-anchor end),
-    // damit der Text nie auf dem Kopf steht.
+    // außen, linke Hälfte wird zusätzlich um 180° gedreht (+ text-anchor
+    // end), damit der Text nie auf dem Kopf steht. Die Rotation sitzt
+    // direkt auf dem Label (nicht mehr auf der Knoten-Gruppe), weil die
+    // Knoten-Gruppe jetzt ein einfaches translate() für Drag-Support nutzt.
     this._labelSelection = nodeG
       .append('text')
       .attr('class', 'node-label')
       .attr('dy', '0.31em')
       .attr('x', (d) => (d.x < Math.PI ? 8 : -8))
       .attr('text-anchor', (d) => (d.x < Math.PI ? 'start' : 'end'))
-      .attr('transform', (d) => (d.x >= Math.PI ? 'rotate(180)' : null))
+      .attr('transform', (d) => {
+        const angleDeg = (d.x * 180) / Math.PI - 90;
+        return `rotate(${d.x >= Math.PI ? angleDeg + 180 : angleDeg})`;
+      })
       .text((d) => truncateLabel(nodeFriendlyName(d)));
 
+    const refreshPositions = () => {
+      nodeG.attr('transform', (d) => {
+        const p = getPos(d);
+        return `translate(${p.x},${p.y})`;
+      });
+      treeEdges.refresh();
+      if (meshEdges) meshEdges.refresh();
+    };
+
+    const drag = d3
+      .drag()
+      .on('start', (event) => {
+        event.sourceEvent.stopPropagation();
+      })
+      .on('drag', (event, d) => {
+        const base = getPos(d);
+        const k = (this._currentZoomTransform && this._currentZoomTransform.k) || 1;
+        d._dragX = base.x + event.dx / k;
+        d._dragY = base.y + event.dy / k;
+        refreshPositions();
+      });
+
     nodeG
+      .call(drag)
       .on('mouseenter', showTooltip)
       .on('mousemove', showTooltip)
       .on('mouseleave', hideTooltip)
       .on('click', (event, d) => {
         event.stopPropagation();
         showTooltip(event, d);
+      })
+      .on('dblclick', (event, d) => {
+        event.stopPropagation();
+        d._dragX = undefined;
+        d._dragY = undefined;
+        refreshPositions();
       });
   }
 
@@ -676,13 +858,25 @@ class ZigbeeTreeCard extends HTMLElement {
   _renderForceLayout(ctx) {
     const { d3, treeLayer, meshLayer, width, height, lqiColor, lqiWidth, built, showTooltip, hideTooltip } = ctx;
 
-    const { nodes: flatNodes, edges: treeEdges } = flattenTree(built.root);
-    const meshEdges = (this._config.show_mesh_links ? built.meshLinks : []).map((l) => ({
+    const { nodes: flatNodes, edges: treeEdgesData } = flattenTree(built.root);
+    const meshEdgesData = (this._config.show_mesh_links ? built.meshLinks : []).map((l) => ({
       source: l.source,
       target: l.target,
+      lqi: l.lqi || 0,
       mesh: true,
     }));
-    const allLinks = treeEdges.map((e) => ({ ...e, mesh: false })).concat(meshEdges);
+
+    // WICHTIG: d3.forceLink() mutiert source/target (String-ID -> Node-
+    // Objekt) NUR auf den Objekten, die ihm selbst übergeben wurden. Diese
+    // Objekte müssen daher IDENTISCH (dieselbe Referenz) mit denen sein,
+    // die zum Rendern der Kanten verwendet werden — sonst bleiben die
+    // gerenderten Kanten bei String-IDs stehen und kollabieren auf (0,0).
+    // treeEdgesData/meshEdgesData werden hier direkt (ohne Kopie) sowohl
+    // für die Simulation als auch fürs Rendering benutzt.
+    treeEdgesData.forEach((e) => {
+      e.mesh = false;
+    });
+    const allLinks = treeEdgesData.concat(meshEdgesData);
 
     // Distanz invers zur LQI: starke Links (hohe LQI) kurz, schwache lang.
     const distanceScale = d3.scaleLinear().domain([0, 255]).range([170, 45]).clamp(true);
@@ -706,22 +900,32 @@ class ZigbeeTreeCard extends HTMLElement {
 
     this._simulation = simulation;
 
-    const meshSel = meshLayer
-      .selectAll('line.mesh-link')
-      .data(meshEdges)
-      .join('line')
-      .attr('class', 'mesh-link')
-      .attr('stroke', '#888')
-      .attr('stroke-width', 0.5)
-      .attr('stroke-opacity', 0.25);
+    // Ab hier (nach dem .force('link', ...)-Aufruf) sind source/target auf
+    // treeEdgesData/meshEdgesData bereits zu echten Node-Objekten aufgelöst
+    // (forceLink.initialize() läuft synchron beim Anhängen der Force).
+    const treeEdges = this._renderEdgeGroup(treeLayer, treeEdgesData, {
+      shape: 'line',
+      sourcePos: (d) => d.source,
+      targetPos: (d) => d.target,
+      stroke: (d) => lqiColor(d.lqi || 0),
+      width: (d) => lqiWidth(d.lqi || 0),
+      lqi: (d) => d.lqi || 0,
+      className: 'tree-link',
+    });
 
-    const linkSel = treeLayer
-      .selectAll('line.tree-link')
-      .data(treeEdges)
-      .join('line')
-      .attr('class', 'tree-link')
-      .attr('stroke', (d) => lqiColor(d.lqi || 0))
-      .attr('stroke-width', (d) => lqiWidth(d.lqi || 0));
+    const meshEdges = meshEdgesData.length
+      ? this._renderEdgeGroup(meshLayer, meshEdgesData, {
+          shape: 'line',
+          sourcePos: (d) => d.source,
+          targetPos: (d) => d.target,
+          stroke: () => MESH_LINK_COLOR,
+          width: () => 1.5,
+          dash: '4 3',
+          opacity: 0.5,
+          lqi: (d) => d.lqi || 0,
+          className: 'mesh-link',
+        })
+      : null;
 
     const nodeG = treeLayer
       .selectAll('g.node')
@@ -751,11 +955,19 @@ class ZigbeeTreeCard extends HTMLElement {
       .on('click', (event, d) => {
         event.stopPropagation();
         showTooltip(event, d);
+      })
+      .on('dblclick', (event, d) => {
+        // Löst die Fixierung: Knoten wird wieder von der Simulation bewegt.
+        event.stopPropagation();
+        d.fx = null;
+        d.fy = null;
+        simulation.alpha(0.5).restart();
       });
 
     const dragBehavior = d3
       .drag()
       .on('start', (event, d) => {
+        event.sourceEvent.stopPropagation();
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
@@ -767,22 +979,14 @@ class ZigbeeTreeCard extends HTMLElement {
       })
       .on('end', (event, d) => {
         if (!event.active) simulation.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
+        // fx/fy bleiben bewusst gesetzt: Knoten bleibt fixiert, bis ein
+        // Doppelklick die Fixierung wieder aufhebt (kein Zurückspringen).
       });
     nodeG.call(dragBehavior);
 
     simulation.on('tick', () => {
-      linkSel
-        .attr('x1', (d) => d.source.x)
-        .attr('y1', (d) => d.source.y)
-        .attr('x2', (d) => d.target.x)
-        .attr('y2', (d) => d.target.y);
-      meshSel
-        .attr('x1', (d) => d.source.x)
-        .attr('y1', (d) => d.source.y)
-        .attr('x2', (d) => d.target.x)
-        .attr('y2', (d) => d.target.y);
+      treeEdges.refresh();
+      if (meshEdges) meshEdges.refresh();
       nodeG.attr('transform', (d) => `translate(${d.x},${d.y})`);
     });
   }
@@ -947,7 +1151,7 @@ function buildTree(rawNodes, rawLinks) {
     const dedupeKey = [l.sourceIeeeAddr, l.targetIeeeAddr].sort().join('|');
     if (meshLinkKeys.has(dedupeKey)) continue;
     meshLinkKeys.add(dedupeKey);
-    meshLinks.push({ source: l.sourceIeeeAddr, target: l.targetIeeeAddr });
+    meshLinks.push({ source: l.sourceIeeeAddr, target: l.targetIeeeAddr, lqi: l.lqi });
   }
 
   return { root: rootTreeNode, meshLinks, nodeById: treeNodeById };
