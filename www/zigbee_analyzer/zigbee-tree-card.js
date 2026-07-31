@@ -726,51 +726,201 @@ class ZigbeeTreeCard extends HTMLElement {
       });
   }
 
-  /** Radialer Baum: Koordinator im Zentrum, Ebenen als konzentrische Ringe. */
+  /**
+   * Radiales "Rollen-Ring"-Layout: Koordinator im Zentrum, ALLE Router auf
+   * einem inneren Ring (Ring 1), EndDevices + Waisen auf einem äußeren Ring
+   * (Ring 2). Der Radius codiert die GERÄTEROLLE, nicht mehr die Baumtiefe.
+   * EndDevices werden im Winkel-Sektor ihres Parent-Routers gruppiert
+   * (Sektorbreite proportional zur Kinderzahl, damit sich Cluster nicht
+   * überlappen) statt zufällig über den ganzen Kreis verteilt zu sein.
+   *
+   * Es gibt HIER keinen "Orphans"-Sammelknoten mehr: verwaiste Geräte
+   * (und alles, was an einem verwaisten Gerät hängt) landen einzeln, grau,
+   * ohne Kante, in einem eigenen Sektor auf Ring 2. Baum/Force behalten
+   * ihren Orphans-Zweig unverändert (siehe _renderTreeLayout/_renderForceLayout).
+   */
   _renderRadialLayout(ctx) {
     const { d3, treeLayer, meshLayer, width, height, lqiColor, lqiWidth, built, showTooltip, hideTooltip } = ctx;
 
-    const radius = Math.max(80, Math.min(width, height) / 2 - 70);
-    const root = d3.hierarchy(built.root);
-    const treeLayout = d3.tree().size([2 * Math.PI, radius]);
-    treeLayout(root);
+    const coordinatorNode = built.root;
+
+    // --- Rollen-Klassifikation --------------------------------------------
+    // routers: alle Router, unabhängig von Baumtiefe/Router-Ketten.
+    // routerChildren: Map<routerId, Kindgeräte[]> — direkte Kinder je Router.
+    // directCoordChildren: Geräte, deren rekonstruierter Parent direkt der
+    // Koordinator ist (kein Router dazwischen).
+    // orphans: alles aus dem (hier aufgelösten) Orphans-Zweig, inkl. eines
+    // eventuellen eigenen Teilbaums darunter (niemand geht verloren).
+    const routers = [];
+    const routerChildren = new Map();
+    const directCoordChildren = [];
+    const orphans = [];
+
+    const collectSubtree = (node) => {
+      const out = [node];
+      for (const child of node.children || []) {
+        out.push(...collectSubtree(child));
+      }
+      return out;
+    };
+
+    const classify = (node) => {
+      for (const child of node.children || []) {
+        if (child.id === ORPHAN_ROOT_ID) {
+          for (const orphanChild of child.children || []) {
+            orphans.push(...collectSubtree(orphanChild));
+          }
+          continue;
+        }
+        if (child.type === 'Router') {
+          routers.push(child);
+          routerChildren.set(child.id, []);
+          classify(child);
+        } else if (node === coordinatorNode) {
+          directCoordChildren.push(child);
+        } else {
+          routerChildren.get(node.id).push(child);
+        }
+      }
+    };
+    classify(coordinatorNode);
+
+    // Stabile Reihenfolge: meiste Kinder zuerst, sonst nach ID.
+    routers.sort((a, b) => {
+      const ca = (routerChildren.get(a.id) || []).length;
+      const cb = (routerChildren.get(b.id) || []).length;
+      if (cb !== ca) return cb - ca;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+
+    // --- Winkel-Sektoren ---------------------------------------------------
+    // Jeder Router (+ ggf. ein Sektor für Koordinator-Direktkinder, + ggf.
+    // ein Sektor für Waisen) bekommt einen Kreissektor proportional zu
+    // seiner Kinderzahl, damit Cluster einander nicht überlappen.
+    const slices = routers.map((r) => ({
+      kind: 'router',
+      node: r,
+      weight: Math.max(1, (routerChildren.get(r.id) || []).length),
+    }));
+    if (directCoordChildren.length) {
+      slices.push({ kind: 'coord', weight: Math.max(1, directCoordChildren.length) });
+    }
+    if (orphans.length) {
+      slices.push({ kind: 'orphan', weight: Math.max(1, orphans.length) });
+    }
+
+    const totalWeight = slices.reduce((sum, s) => sum + s.weight, 0) || 1;
+    let cursor = 0;
+    for (const slice of slices) {
+      const span = (slice.weight / totalWeight) * 2 * Math.PI;
+      slice.span = span;
+      slice.center = cursor + span / 2;
+      cursor += span;
+    }
+
+    const normalizeAngle = (a) => {
+      const twoPi = 2 * Math.PI;
+      const x = a % twoPi;
+      return x < 0 ? x + twoPi : x;
+    };
+
+    const maxRadius = Math.max(100, Math.min(width, height) / 2 - 70);
+    const ring1Radius = maxRadius * 0.32; // Router
+    const ring2Radius = maxRadius * 0.68; // EndDevices + Waisen
+
+    // --- Knoten-Wrapper erzeugen --------------------------------------------
+    // Frische Wrapper-Objekte pro Render (wie d3.hierarchy es für den Baum
+    // tut), damit Drag-Zustand (_dragX/_dragY) NIE auf den gecachten, mit
+    // anderen Layouts geteilten Baumknoten (built.root) landet.
+    const wrapperById = new Map();
+    const orphanIds = new Set(orphans.map((o) => o.id));
+
+    const addNode = (node, angle, baseRadius) => {
+      const norm = normalizeAngle(angle);
+      const w = {
+        data: node,
+        id: node.id,
+        _angle: norm,
+        _baseX: baseRadius * Math.cos(norm - Math.PI / 2),
+        _baseY: baseRadius * Math.sin(norm - Math.PI / 2),
+      };
+      wrapperById.set(node.id, w);
+      return w;
+    };
+
+    const spreadWithinSlice = (slice, items, radius) => {
+      const usable = slice.span * 0.8; // kleine Lücke zwischen Clustern lassen
+      const startAngle = slice.center - usable / 2;
+      items.forEach((item, i) => {
+        const angle = items.length === 1 ? slice.center : startAngle + (usable * i) / (items.length - 1);
+        addNode(item, angle, radius);
+      });
+    };
+
+    addNode(coordinatorNode, 0, 0);
+    for (const slice of slices) {
+      if (slice.kind === 'router') {
+        addNode(slice.node, slice.center, ring1Radius);
+        spreadWithinSlice(slice, routerChildren.get(slice.node.id) || [], ring2Radius);
+      } else if (slice.kind === 'coord') {
+        spreadWithinSlice(slice, directCoordChildren, ring2Radius);
+      } else if (slice.kind === 'orphan') {
+        spreadWithinSlice(slice, orphans, ring2Radius);
+      }
+    }
+
+    const getPos = (w) => (w._dragX !== undefined ? { x: w._dragX, y: w._dragY } : { x: w._baseX, y: w._baseY });
 
     const centerX = width / 2;
     const centerY = height / 2;
     const radialTree = treeLayer.append('g').attr('class', 'radial-root').attr('transform', `translate(${centerX},${centerY})`);
     const radialMesh = meshLayer.append('g').attr('class', 'radial-mesh').attr('transform', `translate(${centerX},${centerY})`);
 
-    // Kartesische Basis-Projektion (Zentrum-relativ). Gedraggte Knoten
-    // überschreiben diese Position, bis ein Doppelklick zurücksetzt.
-    const basePos = (d) => ({
-      x: d.y * Math.cos(d.x - Math.PI / 2),
-      y: d.y * Math.sin(d.x - Math.PI / 2),
-    });
-    const getPos = (d) => (d._dragX !== undefined ? { x: d._dragX, y: d._dragY } : basePos(d));
+    // --- Kanten: Router -> Koordinator, EndDevice -> Parent-Router/-Koord.
+    // Waisen bekommen bewusst KEINE Kante.
+    const roleEdges = [];
+    for (const slice of slices) {
+      if (slice.kind === 'router') {
+        roleEdges.push({
+          source: wrapperById.get(slice.node.id),
+          target: wrapperById.get(coordinatorNode.id),
+          lqi: slice.node.parentLqi || 0,
+        });
+        for (const child of routerChildren.get(slice.node.id) || []) {
+          roleEdges.push({
+            source: wrapperById.get(child.id),
+            target: wrapperById.get(slice.node.id),
+            lqi: child.parentLqi || 0,
+          });
+        }
+      } else if (slice.kind === 'coord') {
+        for (const child of directCoordChildren) {
+          roleEdges.push({
+            source: wrapperById.get(child.id),
+            target: wrapperById.get(coordinatorNode.id),
+            lqi: child.parentLqi || 0,
+          });
+        }
+      }
+    }
 
-    const nodeById = new Map();
-    root.each((d) => nodeById.set(d.data.id, d));
-
-    // Kanten als einfache Linien zwischen den (ggf. gedraggten) Positionen
-    // statt d3.linkRadial(), damit sie live mit frei gezogenen Knoten
-    // mitgehen (linkRadial setzt ein festes Polarkoordinatensystem voraus).
-    const treeEdges = this._renderEdgeGroup(radialTree, root.links(), {
+    const treeEdges = this._renderEdgeGroup(radialTree, roleEdges, {
       shape: 'line',
       sourcePos: (d) => getPos(d.source),
       targetPos: (d) => getPos(d.target),
-      stroke: (d) => lqiColor(nodeParentLqi(d.target) || 0),
-      width: (d) => lqiWidth(nodeParentLqi(d.target) || 0),
-      lqi: (d) => nodeParentLqi(d.target) || 0,
+      stroke: (d) => lqiColor(d.lqi || 0),
+      width: (d) => lqiWidth(d.lqi || 0),
+      lqi: (d) => d.lqi || 0,
       className: 'tree-link',
     });
 
     let meshEdges = null;
     if (this._config.show_mesh_links && built.meshLinks.length) {
-      const validMesh = built.meshLinks.filter((l) => nodeById.has(l.source) && nodeById.has(l.target));
+      const validMesh = built.meshLinks.filter((l) => wrapperById.has(l.source) && wrapperById.has(l.target));
       meshEdges = this._renderEdgeGroup(radialMesh, validMesh, {
         shape: 'line',
-        sourcePos: (d) => getPos(nodeById.get(d.source)),
-        targetPos: (d) => getPos(nodeById.get(d.target)),
+        sourcePos: (d) => getPos(wrapperById.get(d.source)),
+        targetPos: (d) => getPos(wrapperById.get(d.target)),
         stroke: () => MESH_LINK_COLOR,
         width: () => 1.5,
         dash: '4 3',
@@ -780,44 +930,48 @@ class ZigbeeTreeCard extends HTMLElement {
       });
     }
 
+    const allWrappers = Array.from(wrapperById.values());
+
     const nodeG = radialTree
       .selectAll('g.node')
-      .data(root.descendants())
+      .data(allWrappers, (w) => w.id)
       .join('g')
       .attr('class', 'node')
-      .attr('transform', (d) => {
-        const p = getPos(d);
+      .attr('transform', (w) => {
+        const p = getPos(w);
         return `translate(${p.x},${p.y})`;
       })
       .style('cursor', 'grab');
 
     nodeG
       .append('circle')
-      .attr('r', (d) => nodeRadius(d))
-      .attr('fill', (d) => nodeFill(d))
+      .attr('r', (w) => nodeRadius(w))
+      // Waisen immer grau, unabhängig von ihrem ursprünglichen Gerätetyp —
+      // ihr Tooltip zeigt weiterhin den echten Typ (siehe showTooltip).
+      .attr('fill', (w) => (orphanIds.has(w.data.id) ? NODE_COLORS.Orphan : nodeFill(w)))
       .attr('stroke', 'var(--card-background-color, #fff)')
       .attr('stroke-width', 1.5);
 
-    // Label entlang des Radius ausgerichtet: rechte Hälfte startet nach
-    // außen, linke Hälfte wird zusätzlich um 180° gedreht (+ text-anchor
-    // end), damit der Text nie auf dem Kopf steht. Die Rotation sitzt
-    // direkt auf dem Label (nicht mehr auf der Knoten-Gruppe), weil die
-    // Knoten-Gruppe jetzt ein einfaches translate() für Drag-Support nutzt.
+    // Koordinator: einfaches Label unter dem Knoten (keine radiale Richtung
+    // sinnvoll bei r=0). Ring 1/2: radial ausgerichtet, linke Hälfte um
+    // 180° gedreht + text-anchor:end, damit der Text nie auf dem Kopf steht.
     this._labelSelection = nodeG
       .append('text')
       .attr('class', 'node-label')
-      .attr('dy', '0.31em')
-      .attr('x', (d) => (d.x < Math.PI ? 8 : -8))
-      .attr('text-anchor', (d) => (d.x < Math.PI ? 'start' : 'end'))
-      .attr('transform', (d) => {
-        const angleDeg = (d.x * 180) / Math.PI - 90;
-        return `rotate(${d.x >= Math.PI ? angleDeg + 180 : angleDeg})`;
+      .attr('dy', (w) => (nodeType(w) === 'Coordinator' ? null : '0.31em'))
+      .attr('y', (w) => (nodeType(w) === 'Coordinator' ? 26 : null))
+      .attr('x', (w) => (nodeType(w) === 'Coordinator' ? null : w._angle < Math.PI ? 8 : -8))
+      .attr('text-anchor', (w) => (nodeType(w) === 'Coordinator' ? 'middle' : w._angle < Math.PI ? 'start' : 'end'))
+      .attr('transform', (w) => {
+        if (nodeType(w) === 'Coordinator') return null;
+        const angleDeg = (w._angle * 180) / Math.PI - 90;
+        return `rotate(${w._angle >= Math.PI ? angleDeg + 180 : angleDeg})`;
       })
-      .text((d) => truncateLabel(nodeFriendlyName(d)));
+      .text((w) => truncateLabel(nodeFriendlyName(w)));
 
     const refreshPositions = () => {
-      nodeG.attr('transform', (d) => {
-        const p = getPos(d);
+      nodeG.attr('transform', (w) => {
+        const p = getPos(w);
         return `translate(${p.x},${p.y})`;
       });
       treeEdges.refresh();
@@ -829,11 +983,11 @@ class ZigbeeTreeCard extends HTMLElement {
       .on('start', (event) => {
         event.sourceEvent.stopPropagation();
       })
-      .on('drag', (event, d) => {
-        const base = getPos(d);
+      .on('drag', (event, w) => {
+        const base = getPos(w);
         const k = (this._currentZoomTransform && this._currentZoomTransform.k) || 1;
-        d._dragX = base.x + event.dx / k;
-        d._dragY = base.y + event.dy / k;
+        w._dragX = base.x + event.dx / k;
+        w._dragY = base.y + event.dy / k;
         refreshPositions();
       });
 
@@ -842,14 +996,14 @@ class ZigbeeTreeCard extends HTMLElement {
       .on('mouseenter', showTooltip)
       .on('mousemove', showTooltip)
       .on('mouseleave', hideTooltip)
-      .on('click', (event, d) => {
+      .on('click', (event, w) => {
         event.stopPropagation();
-        showTooltip(event, d);
+        showTooltip(event, w);
       })
-      .on('dblclick', (event, d) => {
+      .on('dblclick', (event, w) => {
         event.stopPropagation();
-        d._dragX = undefined;
-        d._dragY = undefined;
+        w._dragX = undefined;
+        w._dragY = undefined;
         refreshPositions();
       });
   }
